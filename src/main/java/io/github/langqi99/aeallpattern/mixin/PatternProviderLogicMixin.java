@@ -79,7 +79,9 @@ public abstract class PatternProviderLogicMixin {
                         PatternProviderLogicMixin logic = (PatternProviderLogicMixin) owner;
                         return AggregateCraftingIndexProbe.isIndexed(logic.mainNode, logic.patterns,
                                 AggregateProviderExpansion.expectsPublishedChildren(
-                                        logic.patternInventory, logic.host.getBlockEntity().getLevel()));
+                                        logic.patternInventory, logic.host.getBlockEntity().getLevel())),
+                    (owner, libraryId) -> AggregateProviderExpansion.containsLibrary(
+                            ((PatternProviderLogicMixin) owner).patternInventory, libraryId));
                     });
         }
         patterns.clear();
