@@ -23,6 +23,7 @@ import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
 
 /**
  * Optional Forge 1.20.1 bridge for PackagedDraconic's Fusion Package Crafter.
@@ -228,15 +229,16 @@ final class PackagedDraconicAdapter implements MachineAdapter {
         if (target == null) {
             return ItemStack.EMPTY;
         }
-        // The installed PackagedDraconic AE block ejects finished items directly
-        // to ME; only return output items from a real inventory if present.
-        List<Direction> sides = new ArrayList<>(List.of(Direction.values()));
-        sides.add(null);
-        for (Direction side : sides) {
-            ItemStack extracted = ItemHandlerTransfer.extractAny(
-                    ItemHandlerTransfer.find(level, binding.target().pos(), side), simulate);
-            if (!extracted.isEmpty()) {
-                return extracted;
+        // FusionCrafterItemHandler exposes slot 0 (the *catalyst*) as extractable
+        // when idle. Never use a generic extractAny() here: it can steal the core
+        // catalyst from the next craft. Slot 1 is the finished output only.
+        for (Direction side : Direction.values()) {
+            var handler = target.getCapability(ForgeCapabilities.ITEM_HANDLER, side).orElse(null);
+            if (handler != null && handler.getSlots() > 1) {
+                ItemStack stack = handler.extractItem(1, Integer.MAX_VALUE, simulate);
+                if (!stack.isEmpty()) {
+                    return stack;
+                }
             }
         }
         return ItemStack.EMPTY;
