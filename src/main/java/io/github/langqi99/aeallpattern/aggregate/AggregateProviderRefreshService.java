@@ -10,6 +10,7 @@ import java.util.LinkedHashSet;
 import java.util.Iterator;
 import java.util.WeakHashMap;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import net.minecraft.server.MinecraftServer;
 import net.minecraftforge.event.OnDatapackSyncEvent;
 
@@ -22,22 +23,36 @@ public final class AggregateProviderRefreshService {
     // A provider can first register before AE2 has finished rebuilding the ME grid.
     // Two bounded post-load retries publish patterns without a permanent polling loop.
     private static final Map<MinecraftServer, List<DelayedRefresh>> DELAYED = new WeakHashMap<>();
+    // One inexpensive health probe each second, rotating across aggregate-bearing
+    // providers. Unlike unconditional requests, healthy networks are never rebuilt.
+    private static final Map<MinecraftServer, Integer> AUDIT_CURSOR = new WeakHashMap<>();
 
     private AggregateProviderRefreshService() {
     }
 
-    private record TrackedRefresh(WeakReference<Object> owner, Consumer<Object> refresh) {
+    private record TrackedRefresh(
+            WeakReference<Object> owner, Consumer<Object> refresh, Predicate<Object> healthy) {
     }
 
     private record DelayedRefresh(TrackedRefresh tracked, long dueTick) {
     }
 
     public static synchronized void track(MinecraftServer server, Object owner, Consumer<Object> refresh) {
+        track(server, owner, refresh, ignored -> true);
+    }
+
+    /**
+     * Health predicates must NOT capture the tracked owner: tracked providers are
+     * held weakly to avoid retaining unloaded chunks indefinitely.
+     */
+    public static synchronized void track(
+            MinecraftServer server, Object owner,
+            Consumer<Object> refresh, Predicate<Object> healthy) {
         List<TrackedRefresh> providers =
                 PROVIDERS.computeIfAbsent(server, ignored -> new ArrayList<>());
         providers.removeIf(tracked -> tracked.owner().get() == null);
         if (providers.stream().noneMatch(tracked -> tracked.owner().get() == owner)) {
-            TrackedRefresh registered = new TrackedRefresh(new WeakReference<>(owner), refresh);
+            TrackedRefresh registered = new TrackedRefresh(new WeakReference<>(owner), refresh, healthy);
             providers.add(registered);
             // Network startup may happen *after* the server datapack event. Without
             // these retries, only the explicit /aeallpattern refresh command can
@@ -68,6 +83,7 @@ public final class AggregateProviderRefreshService {
      */
     public static void tickServer(MinecraftServer server) {
         LinkedHashSet<TrackedRefresh> due = new LinkedHashSet<>();
+        TrackedRefresh audit = null;
         synchronized (AggregateProviderRefreshService.class) {
             Long generation = PENDING.remove(server);
             if (generation != null && generation == RecipeIndexService.generation()) {
@@ -94,6 +110,38 @@ public final class AggregateProviderRefreshService {
                 }
                 if (delayed.isEmpty()) {
                     DELAYED.remove(server);
+                }
+            }
+
+            // The AE2 crafting index may lose a provider long after login,
+            // without notifying the underlying addon logic. Examine one
+            // provider per second, at a stable O(1) lookup cost.
+            if (server.overworld().getGameTime() % 20L == 0L) {
+                List<TrackedRefresh> providers = PROVIDERS.get(server);
+                if (providers != null) {
+                    providers.removeIf(tracked -> tracked.owner().get() == null);
+                    if (!providers.isEmpty()) {
+                        int cursor = AUDIT_CURSOR.getOrDefault(server, 0);
+                        audit = providers.get(Math.floorMod(cursor, providers.size()));
+                        AUDIT_CURSOR.put(server, (cursor + 1) & Integer.MAX_VALUE);
+                    }
+                }
+            }
+        }
+        if (audit != null) {
+            Object owner = audit.owner().get();
+            if (owner != null) {
+                try {
+                    if (!audit.healthy().test(owner)) {
+                        AeAllPattern.LOGGER.warn(
+                                "AE2 crafting index dropped an Aggregate Pattern from {}; republishing it",
+                                owner.getClass().getName());
+                        due.add(audit);
+                    }
+                } catch (RuntimeException error) {
+                    AeAllPattern.LOGGER.warn(
+                            "Could not verify aggregate crafting index health for {}",
+                            owner.getClass().getName(), error);
                 }
             }
         }
