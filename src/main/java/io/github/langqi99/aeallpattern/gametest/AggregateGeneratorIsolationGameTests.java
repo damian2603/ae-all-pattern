@@ -121,6 +121,10 @@ public final class AggregateGeneratorIsolationGameTests {
     @GameTest(batch = "provider_compat", template = "empty", timeoutTicks = 110)
     public static void generatingDifferentMachineDoesNotRefreshAnyExistingProvider(GameTestHelper helper) {
         var server = helper.getLevel().getServer();
+        // Other GameTests in the same batch may have queued a global datapack
+        // refresh. Drain it before tracking the fixture, then test atomically
+        // on the server thread so concurrent tests cannot add a false positive.
+        AggregateProviderRefreshService.tickServer(server);
         Object existingProvider = new Object();
         AtomicInteger refreshes = new AtomicInteger();
         AggregateProviderRefreshService.track(server, existingProvider,
@@ -130,12 +134,11 @@ public final class AggregateGeneratorIsolationGameTests {
         AggregateCatalogMutationService.put(
                 server, uniqueMachine(), "block.minecraft.crafting_table", testRecipes("new-machine"));
 
-        helper.runAfterDelay(3, () -> {
-            helper.assertTrue(existingProvider != null, "Test owner was lost");
-            helper.assertTrue(refreshes.get() == 0,
-                    "Generating an unrelated Aggregate Pattern reindexed another provider");
-            helper.succeed();
-        });
+        AggregateProviderRefreshService.tickServer(server);
+        helper.assertTrue(existingProvider != null, "Test owner was lost");
+        helper.assertTrue(refreshes.get() == 0,
+                "Generating an unrelated Aggregate Pattern reindexed another provider");
+        helper.succeed();
     }
 
     @GameTest(batch = "provider_compat", template = "empty", timeoutTicks = 110)
@@ -145,6 +148,7 @@ public final class AggregateGeneratorIsolationGameTests {
         UUID libraryId = AggregateCatalogMutationService.put(
                 server, machine, "block.minecraft.crafting_table", testRecipes("initial"))
                 .libraryId();
+        AggregateProviderRefreshService.tickServer(server);
         Object matchingProvider = new Object();
         Object unrelatedProvider = new Object();
         AtomicInteger matchingRefreshes = new AtomicInteger();
@@ -160,14 +164,13 @@ public final class AggregateGeneratorIsolationGameTests {
                 server, machine, "block.minecraft.crafting_table", testRecipes("updated"));
         helper.assertTrue(regenerated.libraryId().equals(libraryId),
                 "Regeneration failed to preserve UUID used by physical Aggregate Patterns");
-        helper.runAfterDelay(3, () -> {
-            helper.assertTrue(matchingProvider != null && unrelatedProvider != null,
-                    "Tracked provider fixture was lost");
-            helper.assertTrue(matchingRefreshes.get() == 1,
-                    "Existing library was not re-indexed in the provider holding it");
-            helper.assertTrue(unrelatedRefreshes.get() == 0,
-                    "Existing library refreshed unrelated provider");
-            helper.succeed();
-        });
+        AggregateProviderRefreshService.tickServer(server);
+        helper.assertTrue(matchingProvider != null && unrelatedProvider != null,
+                "Tracked provider fixture was lost");
+        helper.assertTrue(matchingRefreshes.get() == 1,
+                "Existing library was not re-indexed in the provider holding it");
+        helper.assertTrue(unrelatedRefreshes.get() == 0,
+                "Existing library refreshed unrelated provider");
+        helper.succeed();
     }
 }
