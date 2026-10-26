@@ -50,7 +50,8 @@ public final class PackagedAutoAggregateCompat {
 
     /** Used by the server-side catalog refresh service; does not modify physical pattern items. */
     private static void refreshProviderCatalog(Object provider) {
-        if (!(provider instanceof BlockEntity entity) || !(entity.getLevel() instanceof ServerLevel)) {
+        if (!(provider instanceof BlockEntity entity) || entity.isRemoved()
+                || !(entity.getLevel() instanceof ServerLevel)) {
             return;
         }
         try {
