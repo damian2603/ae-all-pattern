@@ -4,8 +4,7 @@ import io.github.langqi99.aeallpattern.AeAllPattern;
 
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternLibrary;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternData;
-import io.github.langqi99.aeallpattern.aggregate.AggregatePatternExpander;
-import io.github.langqi99.aeallpattern.aggregate.AggregateProviderRefreshService;
+import io.github.langqi99.aeallpattern.aggregate.AggregateCatalogMutationService;
 import io.github.langqi99.aeallpattern.aggregate.AggregateRecipe;
 import io.github.langqi99.aeallpattern.machine.MachineAdapterRegistry;
 import io.github.langqi99.aeallpattern.registry.ModDataComponents;
@@ -76,13 +75,12 @@ public final class AggregateGenerationService {
             }
         }
         var ref = refresh
-                ? library.replace(player.getServer(), payload.replacementLibraryId(),
+                ? AggregateCatalogMutationService.replace(
+                        player.getServer(), payload.replacementLibraryId(),
                         payload.catalystId(), payload.machineTranslationKey(), recipes)
-                : library.put(player.getServer(), payload.catalystId(),
+                : AggregateCatalogMutationService.put(player.getServer(), payload.catalystId(),
                         payload.machineTranslationKey(), recipes);
         AggregateStartupRefreshState.markComplete(player.getServer(), ref.libraryId());
-        AggregatePatternExpander.clearCaches();
-        AggregateProviderRefreshService.requestRefresh(player.getServer());
         AggregateMetadataSyncService.sendToOnlinePlayers(player.getServer());
 
         if (refresh) {
