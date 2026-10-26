@@ -105,8 +105,13 @@ final class PackagedDraconicAdapter implements MachineAdapter {
         slots.add(choices(catalyst));
         @SuppressWarnings("unchecked")
         List<Object> injectors = (List<Object>) fusion.getMethod("fusionIngredients").invoke(recipe);
+        // Call through the public interface: some recipe implementations use
+        // private nested IFusionIngredient classes, inaccessible by reflection.
+        Class<?> ingredientApi = Class.forName(
+                "com.brandon3055.draconicevolution.api.crafting.IFusionRecipe$IFusionIngredient");
+        Method getIngredient = ingredientApi.getMethod("get");
         for (Object injector : injectors) {
-            Ingredient ingredient = (Ingredient) injector.getClass().getMethod("get").invoke(injector);
+            Ingredient ingredient = (Ingredient) getIngredient.invoke(injector);
             slots.add(choices(ingredient));
         }
         if (slots.size() > AggregateRecipe.MAX_INPUTS) {
