@@ -1,5 +1,7 @@
 package io.github.langqi99.aeallpattern.network;
 
+import io.github.langqi99.aeallpattern.AeAllPattern;
+
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternLibrary;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternData;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternExpander;
@@ -58,6 +60,20 @@ public final class AggregateGenerationService {
         }
         var library = AggregatePatternLibrary.get(Objects.requireNonNull(player.getServer()));
         boolean refresh = payload.replacementLibraryId() != null;
+        // Missing JEI/EMI categories during startup must never erase the persisted
+        // catalog. A later manual generation can recover it, but existing providers
+        // would otherwise publish zero patterns and the item tooltip would show 0/0.
+        if (refresh && recipes.isEmpty()) {
+            var existing = library.find(payload.replacementLibraryId());
+            if (existing.isPresent() && existing.orElseThrow().recipeCount() > 0) {
+                AeAllPattern.LOGGER.warn(
+                        "Ignoring empty startup catalog for {} ({} saved recipes); keeping existing patterns",
+                        payload.replacementLibraryId(), existing.orElseThrow().recipeCount());
+                AggregateStartupRefreshState.markComplete(player.getServer(), payload.replacementLibraryId());
+                AggregateMetadataSyncService.sendToOnlinePlayers(player.getServer());
+                return;
+            }
+        }
         var ref = refresh
                 ? library.replace(player.getServer(), payload.replacementLibraryId(),
                         payload.catalystId(), payload.machineTranslationKey(), recipes)
