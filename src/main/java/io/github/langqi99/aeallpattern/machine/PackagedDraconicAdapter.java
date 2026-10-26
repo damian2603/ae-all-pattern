@@ -145,9 +145,18 @@ final class PackagedDraconicAdapter implements MachineAdapter {
         CompoundTag tag = new CompoundTag();
         tag.putString("Recipe", recipeId.toString());
         tag.put("InputCore", inputs.get(0).save(new CompoundTag()));
+        // PackagedAuto's MiscHelper.loadAllItems does NOT read a bare NBT
+        // list in positional order. Every serialized injector needs an
+        // "Index" tag; otherwise all entries overwrite list element zero and
+        // the fusion crafter sees only the final injector.
         ListTag injectors = new ListTag();
         for (int index = 1; index < inputs.size(); index++) {
-            injectors.add(inputs.get(index).save(new CompoundTag()));
+            CompoundTag stackTag = inputs.get(index).save(new CompoundTag());
+            stackTag.putByte("Index", (byte) (index - 1));
+            // Match MiscHelper.saveItemWithLargeCount instead of vanilla
+            // ItemStack.save (which stores only a byte count).
+            stackTag.putInt("Count", inputs.get(index).getCount());
+            injectors.add(stackTag);
         }
         tag.put("InputInjector", injectors);
         infoClass.getMethod("load", CompoundTag.class).invoke(info, tag);
