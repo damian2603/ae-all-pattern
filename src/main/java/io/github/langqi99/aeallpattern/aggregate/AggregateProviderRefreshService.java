@@ -1,5 +1,6 @@
 package io.github.langqi99.aeallpattern.aggregate;
 
+import io.github.langqi99.aeallpattern.AeAllPattern;
 import io.github.langqi99.aeallpattern.recipe.RecipeIndexService;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -64,7 +65,14 @@ public final class AggregateProviderRefreshService {
         for (TrackedRefresh tracked : refresh) {
             Object owner = tracked.owner().get();
             if (owner != null) {
-                tracked.refresh().accept(owner);
+                try {
+                    tracked.refresh().accept(owner);
+                } catch (RuntimeException error) {
+                    // A previously tracked block may have unloaded or had its ME node
+                    // destroyed while the catalog was being rebuilt. Do not abort every
+                    // other provider's refresh or crash the server on one stale host.
+                    AeAllPattern.LOGGER.warn("Failed to refresh aggregate recipes in {}", owner.getClass().getName(), error);
+                }
             }
         }
     }
