@@ -71,7 +71,9 @@ public abstract class AdvPatternProviderLogicMixin {
                                 Reflect.field(owner, "patterns", List.class),
                                 AggregateProviderExpansion.expectsPublishedChildren(
                                         Reflect.field(owner, "patternInventory", InternalInventory.class),
-                                        ((AdvPatternProviderLogicMixin) owner).level())));
+                                        ((AdvPatternProviderLogicMixin) owner).level())),
+                        (owner, libraryId) -> AggregateProviderExpansion.containsLibrary(
+                                Reflect.field(owner, "patternInventory", InternalInventory.class), libraryId));
             }
             // Drop the single-child marker the host just decoded; the full expansion replaces it.
             patterns.removeIf(AggregatePatternMarkerDetails.class::isInstance);
