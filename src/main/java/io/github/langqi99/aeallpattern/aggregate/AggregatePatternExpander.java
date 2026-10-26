@@ -143,6 +143,12 @@ public final class AggregatePatternExpander {
         return synchronousMode;
     }
 
+    /** Do not treat a partially built asynchronous catalog as missing from AE2. */
+    public static boolean isPending(MinecraftServer server, UUID libraryId) {
+        List<PendingExpansion> jobs = PENDING.get(server);
+        return jobs != null && jobs.stream().anyMatch(job -> job.key.libraryId().equals(libraryId));
+    }
+
     private static ExpansionContext resolveContext(ItemStack aggregateStack, Level level) {
         AggregatePatternRef ref = ModDataComponents.getAggregatePattern(aggregateStack);
         if (!aggregateStack.is(ModItems.AGGREGATE_PATTERN.get()) || ref == null
