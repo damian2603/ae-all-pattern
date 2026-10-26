@@ -50,6 +50,34 @@ public final class PackagedDraconicGameTests {
                 helper.assertTrue(infoClass.isInstance(info), "Fusion recipe produced the wrong package type");
                 var valid = infoClass.getMethod("isValid").invoke(info);
                 helper.assertTrue(Boolean.TRUE.equals(valid), "Fusion package cannot recover native recipe");
+                @SuppressWarnings("unchecked")
+                var injectors = (java.util.List<ItemStack>) infoClass
+                        .getMethod("getInjectorInputs").invoke(info);
+                // A bare NBT ListTag used to load every injector at index 0.
+                // The resulting package looked valid but fusion could never start.
+                helper.assertTrue(injectors.size() == recipe.inputs().size() - 1,
+                        "Fusion injector count lost after NBT load: got " + injectors.size()
+                                + ", expected " + (recipe.inputs().size() - 1));
+                for (int index = 0; index < injectors.size(); index++) {
+                    helper.assertTrue(ItemStack.matches(injectors.get(index), recipe.inputs().get(index + 1)),
+                            "Fusion injector " + index + " changed during serialization");
+                }
+                @SuppressWarnings("unchecked")
+                var packagePatterns = (java.util.List<Object>) infoClass.getMethod("getPatterns").invoke(info);
+                helper.assertFalse(packagePatterns.isEmpty(), "Fusion recipe emitted no package items");
+                Object firstPattern = packagePatterns.get(0);
+                ItemStack packageStack = (ItemStack) firstPattern.getClass().getMethod("getOutput")
+                        .invoke(firstPattern);
+                Object restoredRecipe = Class.forName("thelm.packagedauto.item.PackageItem")
+                        .getMethod("getRecipeInfo", ItemStack.class)
+                        .invoke(packageStack.getItem(), packageStack);
+                helper.assertTrue(infoClass.isInstance(restoredRecipe),
+                        "The generated package decodes as generic processing instead of fusion");
+                @SuppressWarnings("unchecked")
+                var unpackedInjectors = (java.util.List<ItemStack>) infoClass
+                        .getMethod("getInjectorInputs").invoke(restoredRecipe);
+                helper.assertTrue(unpackedInjectors.size() == injectors.size(),
+                        "Real PackageItem roundtrip silently dropped fusion injectors");
                 var output = (ItemStack) infoClass.getMethod("getOutput").invoke(info);
                 helper.assertTrue(ItemStack.isSameItemSameTags(output, recipe.output())
                                 && output.getCount() == recipe.output().getCount(),
