@@ -75,9 +75,7 @@ public abstract class PigmeePatternProviderBlockEntityMixin {
     private void aeallpattern$rerunUpdatePatterns() {
         aeallpattern$rerunning = true;
         try {
-            java.lang.reflect.Method method = ((Object) this).getClass().getDeclaredMethod("updatePatterns");
-            method.setAccessible(true);
-            method.invoke(this);
+            Reflect.invokeDeclared(this, "updatePatterns");
         } catch (ReflectiveOperationException | RuntimeException error) {
             AeAllPattern.LOGGER.debug("Could not re-run pigmee pattern provider updatePatterns", error);
         } finally {
