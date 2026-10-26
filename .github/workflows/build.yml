@@ -325,6 +325,15 @@ jobs:
               -Pruntime_mekanism_addons=false
               -Pexpected_test_mods=packagedauto,packagedexcrafting,extendedcrafting,cucumber
               -Pforbidden_test_mods=jei,emi,toomanyrecipeviewers
+          - name: PackagedDraconic-Fusion
+            properties: >-
+              -Pruntime_jei=false -Pruntime_emi=false -Pruntime_mekanism=false
+              -Pruntime_mystical_agriculture=false -Pruntime_create=false
+              -Pruntime_industrial_foregoing=false -Pruntime_neoecoae=false
+              -Pruntime_ae_provider_addons=false -Pruntime_packaged_addons=true
+              -Pruntime_packaged_draconic=true -Pruntime_mekanism_addons=false
+              -Pexpected_test_mods=packagedauto,packagedexcrafting,extendedcrafting,cucumber,packageddraconic,draconicevolution,brandonscore,codechickenlib
+              -Pforbidden_test_mods=jei,emi,toomanyrecipeviewers
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
