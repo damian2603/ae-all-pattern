@@ -25,7 +25,8 @@ public final class AggregateCraftingIndexProbe {
 
         IPatternDetails sample = null;
         for (IPatternDetails candidate : patterns) {
-            if (candidate == null || candidate instanceof AggregatePatternMarkerDetails) {
+            if (!(candidate instanceof AggregatePatternDetails)
+                    && !(candidate instanceof AggregateAssemblerPatternDetails)) {
                 continue;
             }
             var outputs = candidate.getOutputs();
@@ -34,7 +35,7 @@ public final class AggregateCraftingIndexProbe {
                 break;
             }
         }
-        // A completely deselected aggregate legitimately publishes no recipes.
+        // A fully deselected or still-expanding aggregate legitimately publishes no recipes.
         if (sample == null) {
             return true;
         }
