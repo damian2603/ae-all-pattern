@@ -2,6 +2,7 @@ package io.github.langqi99.aeallpattern.machine;
 
 import appeng.api.networking.IManagedGridNode;
 import io.github.langqi99.aeallpattern.AeAllPattern;
+import io.github.langqi99.aeallpattern.aggregate.AggregateProviderRefreshService;
 import io.github.langqi99.aeallpattern.registry.ModDataComponents;
 import io.github.langqi99.aeallpattern.registry.ModItems;
 import java.lang.reflect.Constructor;
@@ -36,6 +37,30 @@ public final class PackagedAutoAggregateCompat {
         }
     }
 
+    /**
+     * PackagingProviderItemHandler.load() may run before its block entity has a world.
+     * Retry the aggregate catalog on the first server tick and register for later JEI/EMI rescans.
+     */
+    public static void refreshLoadedProvider(Object provider) {
+        if (!hasAggregatePattern(provider)) {
+            return;
+        }
+        refreshProviderCatalog(provider);
+    }
+
+    /** Used by the server-side catalog refresh service; does not modify physical pattern items. */
+    private static void refreshProviderCatalog(Object provider) {
+        if (!(provider instanceof BlockEntity entity) || !(entity.getLevel() instanceof ServerLevel)) {
+            return;
+        }
+        try {
+            Object handler = provider.getClass().getMethod("getItemHandler").invoke(provider);
+            refreshRecipeList(handler);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            AeAllPattern.LOGGER.warn("Could not restore ME packaging provider aggregate recipes", error);
+        }
+    }
+
     public static void refreshRecipeList(Object handler) {
         try {
             ItemStack stack = (ItemStack) handler.getClass()
@@ -49,6 +74,10 @@ public final class PackagedAutoAggregateCompat {
                     || !(blockEntity.getLevel() instanceof ServerLevel level)) {
                 return;
             }
+            // PackagedAuto only calls updateRecipeList for inventory changes. A catalog
+            // refresh changes the recipes behind a UUID without changing the ItemStack.
+            AggregateProviderRefreshService.track(
+                    level.getServer(), provider, PackagedAutoAggregateCompat::refreshProviderCatalog);
             @SuppressWarnings("unchecked")
             List<Object> recipeList = (List<Object>) provider.getClass().getField("recipeList").get(provider);
             recipeList.clear();
@@ -77,6 +106,11 @@ public final class PackagedAutoAggregateCompat {
                     "thelm.packagedauto.integration.appeng.recipe.PackageCraftingPatternDetails", false, loader);
             Class<?> recipeDetails = Class.forName(
                     "thelm.packagedauto.integration.appeng.recipe.RecipeCraftingPatternDetails", false, loader);
+            Class<?> directDetails = Class.forName(
+                    "thelm.packagedauto.integration.appeng.recipe.DirectCraftingPatternDetails", false, loader);
+            boolean provideDirect = provider.getClass().getField("provideDirect").getBoolean(provider);
+            boolean providePackaging = provider.getClass().getField("providePackaging").getBoolean(provider);
+            boolean provideUnpackaging = provider.getClass().getField("provideUnpackaging").getBoolean(provider);
             Method isCraftable = recipeInfoType.getMethod("isCraftable");
             Method isPackageable = recipeInfoType.getMethod("isPackageable");
             Method getPatterns = recipeInfoType.getMethod("getPatterns");
@@ -85,13 +119,17 @@ public final class PackagedAutoAggregateCompat {
             List<?> recipes = (List<?>) provider.getClass().getField("recipeList").get(provider);
             List<Object> result = new ArrayList<>();
             for (Object recipe : recipes) {
-                if ((boolean) isPackageable.invoke(recipe)) {
+                boolean craftable = (boolean) isCraftable.invoke(recipe);
+                if (provideDirect && craftable) {
+                    result.add(newPatternDetails(directDetails, recipe, level.registryAccess()));
+                }
+                if (providePackaging && (boolean) isPackageable.invoke(recipe)) {
                     addPackagePatterns(result, (List<?>) getPatterns.invoke(recipe), packageDetails,
                             level.registryAccess());
                     addPackagePatterns(result, (List<?>) getExtraPatterns.invoke(recipe), packageDetails,
                             level.registryAccess());
                 }
-                if ((boolean) isCraftable.invoke(recipe)) {
+                if (provideUnpackaging && craftable) {
                     result.add(newPatternDetails(recipeDetails, recipe, level.registryAccess()));
                 }
             }
