@@ -10,6 +10,7 @@ import io.github.langqi99.aeallpattern.AeAllPattern;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternMarkerDetails;
 import io.github.langqi99.aeallpattern.aggregate.AggregateProviderExpansion;
 import io.github.langqi99.aeallpattern.aggregate.AggregateProviderRefreshService;
+import io.github.langqi99.aeallpattern.aggregate.AggregateCraftingIndexProbe;
 import io.github.langqi99.aeallpattern.util.Reflect;
 import java.util.List;
 import java.util.Set;
@@ -64,7 +65,10 @@ public abstract class AdvPatternProviderLogicMixin {
                     && level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
                 AggregateProviderRefreshService.track(
                         serverLevel.getServer(), this,
-                        owner -> ((AdvPatternProviderLogicMixin) owner).aeallpattern$rerunUpdatePatterns());
+                        owner -> ((AdvPatternProviderLogicMixin) owner).aeallpattern$rerunUpdatePatterns(),
+                        owner -> AggregateCraftingIndexProbe.isIndexed(
+                                Reflect.field(owner, "mainNode", appeng.api.networking.IManagedGridNode.class),
+                                Reflect.field(owner, "patterns", List.class)));
             }
             // Drop the single-child marker the host just decoded; the full expansion replaces it.
             patterns.removeIf(AggregatePatternMarkerDetails.class::isInstance);
