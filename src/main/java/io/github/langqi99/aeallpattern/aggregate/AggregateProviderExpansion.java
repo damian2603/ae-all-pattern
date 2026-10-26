@@ -57,6 +57,9 @@ public final class AggregateProviderExpansion {
                 continue;
             }
             var ref = ModDataComponents.getAggregatePattern(stack);
+            if (ref != null && AggregatePatternExpander.isPending(serverLevel.getServer(), ref.libraryId())) {
+                continue;
+            }
             if (ref != null && AggregatePatternLibrary.get(serverLevel.getServer())
                     .find(ref.libraryId()).map(entry -> entry.recipeCount() > 0).orElse(false)) {
                 return true;
