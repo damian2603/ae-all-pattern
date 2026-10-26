@@ -12,6 +12,7 @@ import appeng.util.inv.AppEngInternalInventory;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternExpander;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternMarkerDetails;
 import io.github.langqi99.aeallpattern.aggregate.AggregateProviderRefreshService;
+import io.github.langqi99.aeallpattern.aggregate.AggregateCraftingIndexProbe;
 import io.github.langqi99.aeallpattern.aggregate.AggregateProviderExpansion;
 import io.github.langqi99.aeallpattern.compat.TechStartPatternCompat;
 import java.util.List;
@@ -73,7 +74,11 @@ public abstract class PatternProviderLogicMixin {
                 && blockEntity.getLevel() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
             AggregateProviderRefreshService.track(
                     serverLevel.getServer(), this,
-                    owner -> ((PatternProviderLogicMixin) owner).aeallpattern$refreshCatalog());
+                    owner -> ((PatternProviderLogicMixin) owner).aeallpattern$refreshCatalog(),
+                    owner -> {
+                        PatternProviderLogicMixin logic = (PatternProviderLogicMixin) owner;
+                        return AggregateCraftingIndexProbe.isIndexed(logic.mainNode, logic.patterns);
+                    });
         }
         patterns.clear();
         patternInputs.clear();
