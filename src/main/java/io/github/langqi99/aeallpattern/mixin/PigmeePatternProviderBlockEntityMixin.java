@@ -48,16 +48,19 @@ public abstract class PigmeePatternProviderBlockEntityMixin {
             if (level == null) {
                 return;
             }
-            if (level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
-                AggregateProviderRefreshService.track(
-                        serverLevel.getServer(), this,
-                        owner -> ((PigmeePatternProviderBlockEntityMixin) owner)
-                                .aeallpattern$rerunUpdatePatterns());
-            }
             List<IPatternDetails> patterns = Reflect.field(self, "patterns", List.class);
             InternalInventory inventory = Reflect.field(self, "patternInventory", InternalInventory.class);
             if (patterns == null || inventory == null) {
                 return;
+            }
+            if (AggregateProviderExpansion.containsAggregate(inventory)
+                    && level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+                AggregateProviderRefreshService.track(
+                        serverLevel.getServer(), this,
+                        owner -> ((PigmeePatternProviderBlockEntityMixin) owner).aeallpattern$rerunUpdatePatterns(),
+                        null,
+                        (owner, libraryId) -> AggregateProviderExpansion.containsLibrary(
+                                Reflect.field(owner, "patternInventory", InternalInventory.class), libraryId));
             }
             // Drop the single-child marker the host just decoded; the full expansion replaces it.
             patterns.removeIf(AggregatePatternMarkerDetails.class::isInstance);
