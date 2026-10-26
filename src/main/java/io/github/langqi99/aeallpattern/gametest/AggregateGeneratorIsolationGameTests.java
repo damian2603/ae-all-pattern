@@ -50,6 +50,7 @@ public final class AggregateGeneratorIsolationGameTests {
                 server, uniqueMachine(), "block.minecraft.crafting_table", testRecipes("new-machine"));
 
         helper.runAfterDelay(3, () -> {
+            helper.assertTrue(existingProvider != null, "Test owner was lost");
             helper.assertTrue(refreshes.get() == 0,
                     "Generating an unrelated Aggregate Pattern reindexed another provider");
             helper.succeed();
@@ -79,6 +80,8 @@ public final class AggregateGeneratorIsolationGameTests {
         helper.assertTrue(regenerated.libraryId().equals(libraryId),
                 "Regeneration failed to preserve UUID used by physical Aggregate Patterns");
         helper.runAfterDelay(3, () -> {
+            helper.assertTrue(matchingProvider != null && unrelatedProvider != null,
+                    "Tracked provider fixture was lost");
             helper.assertTrue(matchingRefreshes.get() == 1,
                     "Existing library was not re-indexed in the provider holding it");
             helper.assertTrue(unrelatedRefreshes.get() == 0,
