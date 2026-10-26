@@ -38,7 +38,7 @@ public final class AggregateProviderRefreshService {
     }
 
     public static synchronized void track(MinecraftServer server, Object owner, Consumer<Object> refresh) {
-        track(server, owner, refresh, ignored -> true);
+        track(server, owner, refresh, null);
     }
 
     /**
@@ -120,9 +120,11 @@ public final class AggregateProviderRefreshService {
                 List<TrackedRefresh> providers = PROVIDERS.get(server);
                 if (providers != null) {
                     providers.removeIf(tracked -> tracked.owner().get() == null);
-                    if (!providers.isEmpty()) {
+                    List<TrackedRefresh> monitored = providers.stream()
+                            .filter(tracked -> tracked.healthy() != null).toList();
+                    if (!monitored.isEmpty()) {
                         int cursor = AUDIT_CURSOR.getOrDefault(server, 0);
-                        audit = providers.get(Math.floorMod(cursor, providers.size()));
+                        audit = monitored.get(Math.floorMod(cursor, monitored.size()));
                         AUDIT_CURSOR.put(server, (cursor + 1) & Integer.MAX_VALUE);
                     }
                 }
