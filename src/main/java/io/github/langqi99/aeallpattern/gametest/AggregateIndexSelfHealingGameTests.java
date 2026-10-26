@@ -45,6 +45,44 @@ public final class AggregateIndexSelfHealingGameTests {
         exercise(helper, new ResourceLocation("advanced_ae", "adv_pattern_provider"));
     }
 
+    @GameTest(batch = "provider_compat", template = "empty", timeoutTicks = 600)
+    public static void advancedProviderRecoversEmptyLocalPatterns(GameTestHelper helper) {
+        var blockId = new ResourceLocation("advanced_ae", "adv_pattern_provider");
+        var block = BuiltInRegistries.BLOCK.getOptional(blockId);
+        if (block.isEmpty()) {
+            helper.succeed();
+            return;
+        }
+        BlockPos pos = new BlockPos(1, 1, 1);
+        helper.setBlock(pos, block.orElseThrow());
+        helper.setBlock(pos.east(), appeng.core.definitions.AEBlocks.CREATIVE_ENERGY_CELL.block());
+        helper.runAfterDelay(20, () -> {
+            try {
+                var entity = helper.getLevel().getBlockEntity(helper.absolutePos(pos));
+                helper.assertTrue(entity != null, "AdvancedAE Pattern Provider missing");
+                Object logic = entity.getClass().getMethod("getLogic").invoke(entity);
+                var inventory = (InternalInventory) logic.getClass().getMethod("getPatternInv").invoke(logic);
+                inventory.setItemDirect(0, makeAggregate(helper, blockId));
+                helper.runAfterDelay(45, () -> {
+                    @SuppressWarnings("unchecked")
+                    List<IPatternDetails> local = (List<IPatternDetails>) Reflect.field(logic, "patterns");
+                    helper.assertTrue(local != null && local.size() > 0,
+                            "AdvancedAE did not decode the initial aggregate");
+                    local.clear();
+                    helper.assertTrue(local.isEmpty(), "Failed to reproduce loss of local child recipes");
+                    helper.succeedWhen(() -> {
+                        helper.assertTrue(!local.isEmpty(),
+                                "Automatic health probe did not rebuild the emptied AdvancedAE local list");
+                        helper.assertTrue(inventory.getStackInSlot(0).is(ModItems.AGGREGATE_PATTERN.get()),
+                                "Physical Aggregate Pattern was lost while repairing AdvancedAE");
+                    });
+                });
+            } catch (ReflectiveOperationException error) {
+                throw new IllegalStateException(error);
+            }
+        });
+    }
+
     private static ItemStack makeAggregate(GameTestHelper helper, ResourceLocation providerId) {
         var server = helper.getLevel().getServer();
         var recipe = new AggregateRecipe("self-heal-" + providerId,
