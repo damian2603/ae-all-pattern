@@ -198,9 +198,11 @@ final class PackagedCraftingAdapter implements MachineAdapter {
             if (selection != null && !selection.isEnabled(aggregateRecipe.patternId())) {
                 continue;
             }
-            Object info = spec == null
-                    ? processingRecipeInfo(level, options, aggregateRecipe)
-                    : specializedRecipeInfo(level, spec, aggregateRecipe);
+            Object info = PackagedDraconicAdapter.MACHINE.equals(ref.catalystId())
+                    ? PackagedDraconicAdapter.packageRecipeInfo(level, aggregateRecipe)
+                    : spec == null
+                            ? processingRecipeInfo(level, options, aggregateRecipe)
+                            : specializedRecipeInfo(level, spec, aggregateRecipe);
             try {
                 if (info != null && invokeBoolean(info, "isValid")) {
                     result.add(info);
