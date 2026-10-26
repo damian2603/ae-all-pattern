@@ -10,6 +10,7 @@ import io.github.langqi99.aeallpattern.aggregate.AggregatePatternKind;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternLibrary;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternOptions;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternRef;
+import io.github.langqi99.aeallpattern.aggregate.AggregatePatternSelection;
 import io.github.langqi99.aeallpattern.aggregate.AggregateRecipe;
 import io.github.langqi99.aeallpattern.binding.BindingRecord;
 import io.github.langqi99.aeallpattern.recipe.RecipeCatalog;
@@ -189,8 +190,14 @@ final class PackagedCraftingAdapter implements MachineAdapter {
                 .recipes(level.getServer(), ref.libraryId()).orElse(List.of());
         AggregatePatternOptions savedOptions = ModDataComponents.getAggregatePatternOptions(aggregate);
         AggregatePatternOptions options = savedOptions == null ? AggregatePatternOptions.DEFAULT : savedOptions;
+        AggregatePatternSelection selection = ModDataComponents.getAggregatePatternSelection(aggregate);
         List<Object> result = new ArrayList<>(recipes.size());
         for (AggregateRecipe aggregateRecipe : recipes) {
+            // Use the same child selection as AE2/AdvancedAE; excluded recipes must not
+            // appear again through PackagedAuto (including Ender/Flux/Combination crafters).
+            if (selection != null && !selection.isEnabled(aggregateRecipe.patternId())) {
+                continue;
+            }
             Object info = spec == null
                     ? processingRecipeInfo(level, options, aggregateRecipe)
                     : specializedRecipeInfo(level, spec, aggregateRecipe);
