@@ -3,6 +3,8 @@ package io.github.langqi99.aeallpattern.aggregate;
 import appeng.api.crafting.IPatternDetails;
 import appeng.api.networking.IManagedGridNode;
 import java.util.List;
+import java.util.Set;
+import io.github.langqi99.aeallpattern.util.Reflect;
 
 /**
  * Very cheap live check of AE2's crafting index, without rebuilding any pattern.
@@ -40,7 +42,17 @@ public final class AggregateCraftingIndexProbe {
             return true;
         }
 
-        return node.getGrid().getCraftingService()
-                .getCraftingFor(sample.getPrimaryOutput().what()).contains(sample);
+        var service = node.getGrid().getCraftingService();
+        var output = sample.getPrimaryOutput().what();
+        if (!service.getCraftingFor(output).contains(sample)) {
+            return false;
+        }
+        // AE2 also maintains a separate craftable-key snapshot used to
+        // notify storage/crafting watchers. The pattern can still be indexed
+        // while this snapshot is stale (e.g. a network rebuild removes and
+        // re-adds a provider in the same server tick). A manual refresh
+        // repairs that exact symptom; recover it automatically instead.
+        Set<?> cachedCraftables = Reflect.field(service, "currentlyCraftable", Set.class);
+        return cachedCraftables == null || cachedCraftables.contains(output);
     }
 }
