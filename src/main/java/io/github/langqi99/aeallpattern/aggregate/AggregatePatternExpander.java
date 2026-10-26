@@ -134,6 +134,48 @@ public final class AggregatePatternExpander {
         RECIPE_EXPANSION_CACHE.clear();
     }
 
+    /**
+     * A single machine catalog was replaced. Preserve cached pattern lists and
+     * in-flight expansion jobs of every unrelated machine. Globally clearing
+     * those on every generator click made large AdvancedAE/ExtendedAE providers
+     * temporarily publish zero recipes while their async scan restarted.
+     */
+    public static void invalidateLibrary(MinecraftServer server, UUID libraryId) {
+        var cached = EXPANSION_CACHE.get(server);
+        if (cached != null) {
+            cached.keySet().removeIf(key -> key.libraryId().equals(libraryId));
+        }
+
+        // Per-child virtual pattern details are cached separately. Evict only
+        // recipe identities belonging to the updated catalog.
+        var childCache = RECIPE_EXPANSION_CACHE.get(server);
+        if (childCache != null) {
+            java.util.Set<String> prefixes = AggregatePatternLibrary.get(server)
+                    .recipes(server, libraryId).orElse(List.of()).stream()
+                    .map(recipe -> "aggregate:" + recipe.patternId())
+                    .collect(java.util.stream.Collectors.toSet());
+            childCache.keySet().removeIf(key -> prefixes.stream()
+                    .anyMatch(prefix -> key.prefix().equals(prefix)
+                            || key.prefix().startsWith(prefix + ":sel=")));
+        }
+
+        List<Runnable> callbacks = new ArrayList<>();
+        List<PendingExpansion> jobs = PENDING.get(server);
+        if (jobs != null) {
+            java.util.Iterator<PendingExpansion> iterator = jobs.iterator();
+            while (iterator.hasNext()) {
+                PendingExpansion job = iterator.next();
+                if (job.key.libraryId().equals(libraryId)) {
+                    callbacks.addAll(job.completionCallbacks);
+                    iterator.remove();
+                }
+            }
+        }
+        // Restart only interrupted hosts through their existing completion
+        // callbacks; unrelated async jobs keep their progress and callbacks.
+        runCompletions(callbacks);
+    }
+
     /** GameTest hook: forces the scheduled path to complete synchronously. */
     public static void setSynchronous(boolean value) {
         synchronousMode = value;
