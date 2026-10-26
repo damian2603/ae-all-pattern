@@ -26,6 +26,12 @@ public final class AggregateCatalogMutationService {
                 .findFirst()
                 .map(AggregatePatternLibrary.Entry::libraryId)
                 .orElse(null);
+        // Clicking the same machine again often yields an identical catalog.
+        // Return another valid physical item without touching pages or ME indexes.
+        if (existing != null && library.recipes(server, existing)
+                .map(recipes::equals).orElse(false)) {
+            return new AggregatePatternRef(existing, catalystId);
+        }
         AggregatePatternRef ref = library.put(server, catalystId, machineTranslationKey, recipes);
         if (existing != null) {
             // put() deliberately reuses the UUID so physical copies of this
