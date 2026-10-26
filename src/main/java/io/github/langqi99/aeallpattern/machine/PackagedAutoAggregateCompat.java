@@ -107,11 +107,6 @@ public final class PackagedAutoAggregateCompat {
                     "thelm.packagedauto.integration.appeng.recipe.PackageCraftingPatternDetails", false, loader);
             Class<?> recipeDetails = Class.forName(
                     "thelm.packagedauto.integration.appeng.recipe.RecipeCraftingPatternDetails", false, loader);
-            Class<?> directDetails = Class.forName(
-                    "thelm.packagedauto.integration.appeng.recipe.DirectCraftingPatternDetails", false, loader);
-            boolean provideDirect = provider.getClass().getField("provideDirect").getBoolean(provider);
-            boolean providePackaging = provider.getClass().getField("providePackaging").getBoolean(provider);
-            boolean provideUnpackaging = provider.getClass().getField("provideUnpackaging").getBoolean(provider);
             Method isCraftable = recipeInfoType.getMethod("isCraftable");
             Method isPackageable = recipeInfoType.getMethod("isPackageable");
             Method getPatterns = recipeInfoType.getMethod("getPatterns");
@@ -120,17 +115,16 @@ public final class PackagedAutoAggregateCompat {
             List<?> recipes = (List<?>) provider.getClass().getField("recipeList").get(provider);
             List<Object> result = new ArrayList<>();
             for (Object recipe : recipes) {
-                boolean craftable = (boolean) isCraftable.invoke(recipe);
-                if (provideDirect && craftable) {
-                    result.add(newPatternDetails(directDetails, recipe, level.registryAccess()));
-                }
-                if (providePackaging && (boolean) isPackageable.invoke(recipe)) {
+                // Aggregate workflows must always go through PackagedAuto's package/unpackage
+                // stages. Exposing a direct shortcut bypasses the target machine and defeats
+                // the atomic dispatch that PackagedExCrafting requires.
+                if ((boolean) isPackageable.invoke(recipe)) {
                     addPackagePatterns(result, (List<?>) getPatterns.invoke(recipe), packageDetails,
                             level.registryAccess());
                     addPackagePatterns(result, (List<?>) getExtraPatterns.invoke(recipe), packageDetails,
                             level.registryAccess());
                 }
-                if (provideUnpackaging && craftable) {
+                if ((boolean) isCraftable.invoke(recipe)) {
                     result.add(newPatternDetails(recipeDetails, recipe, level.registryAccess()));
                 }
             }
