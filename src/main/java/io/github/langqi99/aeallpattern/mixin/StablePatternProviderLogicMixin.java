@@ -98,9 +98,7 @@ public abstract class StablePatternProviderLogicMixin {
     private void aeallpattern$rerunUpdatePatterns() {
         aeallpattern$rerunning = true;
         try {
-            java.lang.reflect.Method method = ((Object) this).getClass().getMethod("updatePatterns");
-            method.setAccessible(true);
-            method.invoke(this);
+            Reflect.invokeDeclared(this, "updatePatterns");
         } catch (ReflectiveOperationException | RuntimeException error) {
             AeAllPattern.LOGGER.debug("Could not re-run packaged provider updatePatterns", error);
         } finally {
