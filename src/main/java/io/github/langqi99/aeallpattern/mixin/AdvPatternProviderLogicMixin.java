@@ -68,7 +68,10 @@ public abstract class AdvPatternProviderLogicMixin {
                         owner -> ((AdvPatternProviderLogicMixin) owner).aeallpattern$rerunUpdatePatterns(),
                         owner -> AggregateCraftingIndexProbe.isIndexed(
                                 Reflect.field(owner, "mainNode", appeng.api.networking.IManagedGridNode.class),
-                                Reflect.field(owner, "patterns", List.class)));
+                                Reflect.field(owner, "patterns", List.class),
+                                AggregateProviderExpansion.expectsPublishedChildren(
+                                        Reflect.field(owner, "patternInventory", InternalInventory.class),
+                                        ((AdvPatternProviderLogicMixin) owner).level())));
             }
             // Drop the single-child marker the host just decoded; the full expansion replaces it.
             patterns.removeIf(AggregatePatternMarkerDetails.class::isInstance);
