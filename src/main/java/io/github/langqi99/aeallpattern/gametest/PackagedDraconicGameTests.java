@@ -92,4 +92,89 @@ public final class PackagedDraconicGameTests {
             }
         });
     }
+
+    /**
+     * Check the actual ME Packaging Provider -> Fusion Package Crafter dispatch
+     * route. Without Marked Injectors the crafter correctly refuses the craft,
+     * but only a real native FusionPackageRecipeInfo reaches the tier counter.
+     */
+    @GameTest(batch = "provider_compat", template = "empty", timeoutTicks = 180)
+    public static void packagingProviderDispatchesFusionRecipe(GameTestHelper helper) {
+        var fusionBlock = BuiltInRegistries.BLOCK.getOptional(
+                new ResourceLocation("packageddraconic", "fusion_crafter"));
+        var providerBlock = BuiltInRegistries.BLOCK.getOptional(
+                new ResourceLocation("packagedauto", "packaging_provider"));
+        if (fusionBlock.isEmpty() || providerBlock.isEmpty()) {
+            helper.succeed();
+            return;
+        }
+        var fusionPos = new BlockPos(1, 1, 1);
+        var providerPos = new BlockPos(2, 1, 1);
+        helper.setBlock(fusionPos, fusionBlock.get());
+        helper.setBlock(providerPos, providerBlock.get());
+        helper.setBlock(providerPos.above(),
+                appeng.core.definitions.AEBlocks.CREATIVE_ENERGY_CELL.block());
+
+        helper.runAfterDelay(20, () -> {
+            try {
+                var level = helper.getLevel();
+                var fusion = level.getBlockEntity(helper.absolutePos(fusionPos));
+                var provider = level.getBlockEntity(helper.absolutePos(providerPos));
+                helper.assertTrue(fusion != null && provider != null, "Fusion crafter or provider missing");
+                var adapter = MachineAdapterRegistry.find(level, fusion).orElse(null);
+                helper.assertTrue(adapter != null, "PackagedDraconic adapter missing");
+                var catalog = RecipeIndexService.catalog(level, fusion, adapter);
+                var snapshot = catalog.recipes().stream().filter(recipe -> recipe.inputs().size() > 1)
+                        .findFirst().orElse(null);
+                helper.assertTrue(snapshot != null, "No eligible fusion recipe for dispatch");
+                var ref = io.github.langqi99.aeallpattern.aggregate.AggregatePatternLibrary
+                        .get(level.getServer()).put(level.getServer(),
+                                new ResourceLocation("packageddraconic", "fusion_crafter"),
+                                "block.packageddraconic.fusion_crafter",
+                                java.util.List.of(AggregateRecipe.from(snapshot)));
+                ItemStack pattern = new ItemStack(
+                        io.github.langqi99.aeallpattern.registry.ModItems.AGGREGATE_PATTERN.get());
+                io.github.langqi99.aeallpattern.registry.ModDataComponents
+                        .setAggregatePattern(pattern, ref);
+                var handler = (net.minecraftforge.items.IItemHandlerModifiable)
+                        provider.getClass().getMethod("getItemHandler").invoke(provider);
+                handler.setStackInSlot(0, pattern);
+
+                helper.runAfterDelay(20, () -> {
+                    try {
+                        var mainNode = (appeng.api.networking.IManagedGridNode)
+                                provider.getClass().getMethod("getMainNode").invoke(provider);
+                        helper.assertTrue(mainNode.isActive(), "ME Packaging Provider not powered");
+                        @SuppressWarnings("unchecked")
+                        var patterns = (java.util.List<appeng.api.crafting.IPatternDetails>)
+                                provider.getClass().getMethod("getAvailablePatterns").invoke(provider);
+                        var recipeDetails = patterns.stream().filter(details ->
+                                details.getClass().getName().equals(
+                                        "thelm.packagedauto.integration.appeng.recipe.RecipeCraftingPatternDetails"))
+                                .findFirst().orElse(null);
+                        helper.assertTrue(recipeDetails != null,
+                                "Packaging provider did not publish a fusion unpackaging pattern");
+
+                        boolean accepted = (boolean) provider.getClass().getMethod("pushPattern",
+                                appeng.api.crafting.IPatternDetails.class,
+                                appeng.api.stacks.KeyCounter[].class)
+                                .invoke(provider, recipeDetails,
+                                        new appeng.api.stacks.KeyCounter[0]);
+                        // No Marked Injectors have been placed; rejection is the
+                        // safe outcome, and requiredInjectors proves dispatch occurred.
+                        helper.assertTrue(!accepted, "Fusion unexpectedly started without marked injectors");
+                        int[] required = (int[]) fusion.getClass().getField("requiredInjectors").get(fusion);
+                        int reached = java.util.Arrays.stream(required).max().orElse(0);
+                        helper.assertTrue(reached >= snapshot.inputs().size() - 1,
+                                "ME provider did not send native fusion recipe to adjacent crafter");
+                        helper.succeed();
+                    } catch (ReflectiveOperationException error) {
+                        throw new IllegalStateException(error);
+                    }
+                });
+            } catch (ReflectiveOperationException error) {
+                throw new IllegalStateException(error);
+            }
+        });
+    }
 }
