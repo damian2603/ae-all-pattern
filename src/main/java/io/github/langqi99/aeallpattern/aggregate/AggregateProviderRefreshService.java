@@ -26,6 +26,10 @@ public final class AggregateProviderRefreshService {
     // One inexpensive health probe each second, rotating across aggregate-bearing
     // providers. Unlike unconditional requests, healthy networks are never rebuilt.
     private static final Map<MinecraftServer, Integer> AUDIT_CURSOR = new WeakHashMap<>();
+    // If an addon cannot currently publish valid children (unloaded chunk,
+    // disconnected ME channel or filtered-only catalog), avoid a refresh storm.
+    private static final Map<MinecraftServer, Map<Object, Long>> AUTO_REPAIRED_AT = new WeakHashMap<>();
+    private static final long AUTO_REPAIR_COOLDOWN_TICKS = 200;
 
     private AggregateProviderRefreshService() {
     }
@@ -135,10 +139,23 @@ public final class AggregateProviderRefreshService {
             if (owner != null) {
                 try {
                     if (!audit.healthy().test(owner)) {
-                        AeAllPattern.LOGGER.warn(
-                                "AE2 crafting index dropped an Aggregate Pattern from {}; republishing it",
-                                owner.getClass().getName());
-                        due.add(audit);
+                        long now = server.overworld().getGameTime();
+                        boolean shouldRepair;
+                        synchronized (AggregateProviderRefreshService.class) {
+                            Map<Object, Long> repaired = AUTO_REPAIRED_AT.computeIfAbsent(
+                                    server, ignored -> new WeakHashMap<>());
+                            Long last = repaired.get(owner);
+                            shouldRepair = last == null || now - last >= AUTO_REPAIR_COOLDOWN_TICKS;
+                            if (shouldRepair) {
+                                repaired.put(owner, now);
+                            }
+                        }
+                        if (shouldRepair) {
+                            AeAllPattern.LOGGER.warn(
+                                    "AE2 crafting index dropped an Aggregate Pattern from {}; republishing it",
+                                    owner.getClass().getName());
+                            due.add(audit);
+                        }
                     }
                 } catch (RuntimeException error) {
                     AeAllPattern.LOGGER.warn(
