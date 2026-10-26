@@ -65,7 +65,8 @@ public final class AggregateGenerationService {
         // would otherwise publish zero patterns and the item tooltip would show 0/0.
         if (refresh && recipes.isEmpty()) {
             var existing = library.find(payload.replacementLibraryId());
-            if (existing.isPresent() && existing.orElseThrow().recipeCount() > 0) {
+            if (shouldPreserveOnEmptyRefresh(true,
+                    existing.map(AggregatePatternLibrary.Entry::recipeCount).orElse(0), recipes.size())) {
                 AeAllPattern.LOGGER.warn(
                         "Ignoring empty startup catalog for {} ({} saved recipes); keeping existing patterns",
                         payload.replacementLibraryId(), existing.orElseThrow().recipeCount());
@@ -99,6 +100,11 @@ public final class AggregateGenerationService {
         player.displayClientMessage(Component.translatable(
                 "message.aeallpattern.generator.created",
                 Component.translatable(payload.machineTranslationKey()), recipes.size()), true);
+    }
+
+    /** Prevents non-authoritative viewer rescans from destroying persistent recipes. */
+    static boolean shouldPreserveOnEmptyRefresh(boolean replacing, int savedCount, int incomingCount) {
+        return replacing && savedCount > 0 && incomingCount == 0;
     }
 
     private static boolean validTarget(GenerateAggregatePayload payload, ServerPlayer player) {
