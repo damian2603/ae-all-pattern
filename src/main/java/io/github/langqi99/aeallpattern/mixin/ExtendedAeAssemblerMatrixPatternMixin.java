@@ -55,7 +55,7 @@ public abstract class ExtendedAeAssemblerMatrixPatternMixin {
     private void aeallpattern$rerunUpdatePatterns() {
         aeallpattern$rerunning = true;
         try {
-            Reflect.invoke(this, "updatePatterns");
+            Reflect.invokeDeclared(this, "updatePatterns");
         } catch (ReflectiveOperationException | RuntimeException error) {
             AeAllPattern.LOGGER.debug("Could not refresh assembler-matrix patterns", error);
         } finally {
