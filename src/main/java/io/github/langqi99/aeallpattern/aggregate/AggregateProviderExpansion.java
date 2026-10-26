@@ -40,6 +40,26 @@ public final class AggregateProviderExpansion {
     }
 
     /**
+     * Library-specific selection for targeted catalog updates. A newly generated
+     * unrelated aggregate must never rebuild already-indexed ME providers.
+     */
+    public static boolean containsLibrary(InternalInventory inventory, java.util.UUID libraryId) {
+        if (inventory == null || libraryId == null) {
+            return false;
+        }
+        for (int slot = 0; slot < inventory.size(); slot++) {
+            ItemStack stack = inventory.getStackInSlot(slot);
+            if (!stack.isEmpty() && ModDataComponents.hasAggregatePattern(stack)) {
+                AggregatePatternRef ref = ModDataComponents.getAggregatePattern(stack);
+                if (ref != null && libraryId.equals(ref.libraryId())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * Cheap metadata-only check for a provider that should have at least one
      * published aggregate child. Fully disabled catalogs are legitimately empty.
      */
