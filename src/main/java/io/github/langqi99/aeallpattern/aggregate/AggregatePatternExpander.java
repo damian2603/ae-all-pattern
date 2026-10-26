@@ -154,9 +154,12 @@ public final class AggregatePatternExpander {
                     .recipes(server, libraryId).orElse(List.of()).stream()
                     .map(recipe -> "aggregate:" + recipe.patternId())
                     .collect(java.util.stream.Collectors.toSet());
-            childCache.keySet().removeIf(key -> prefixes.stream()
-                    .anyMatch(prefix -> key.prefix().equals(prefix)
-                            || key.prefix().startsWith(prefix + ":sel=")));
+            childCache.keySet().removeIf(key -> {
+                String prefix = key.prefix();
+                int selectionSuffix = prefix.lastIndexOf(":sel=");
+                String base = selectionSuffix < 0 ? prefix : prefix.substring(0, selectionSuffix);
+                return prefixes.contains(base);
+            });
         }
 
         List<Runnable> callbacks = new ArrayList<>();
