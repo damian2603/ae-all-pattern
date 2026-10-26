@@ -1,16 +1,24 @@
 package io.github.langqi99.aeallpattern.gametest;
 
 import appeng.api.stacks.AEItemKey;
+import appeng.api.crafting.IPatternDetails;
+import appeng.api.inventories.InternalInventory;
+import appeng.api.networking.IManagedGridNode;
 import appeng.api.stacks.GenericStack;
 import io.github.langqi99.aeallpattern.AeAllPattern;
 import io.github.langqi99.aeallpattern.aggregate.AggregateCatalogMutationService;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternKind;
 import io.github.langqi99.aeallpattern.aggregate.AggregateProviderRefreshService;
 import io.github.langqi99.aeallpattern.aggregate.AggregateRecipe;
+import io.github.langqi99.aeallpattern.registry.ModItems;
+import io.github.langqi99.aeallpattern.registry.ModDataComponents;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Items;
@@ -35,6 +43,79 @@ public final class AggregateGeneratorIsolationGameTests {
                 AggregatePatternKind.CRAFTING,
                 List.of(new GenericStack(AEItemKey.of(Items.OAK_LOG), 1)),
                 List.of(new GenericStack(AEItemKey.of(Items.OAK_PLANKS), 4)), 1));
+    }
+
+    @GameTest(batch = "provider_compat", template = "empty", timeoutTicks = 180)
+    public static void vanillaProviderKeepsRecipesDuringUnrelatedGeneratorScan(GameTestHelper helper) {
+        assertRealProviderUnaffected(helper, new ResourceLocation("ae2", "pattern_provider"));
+    }
+
+    @GameTest(batch = "provider_compat", template = "empty", timeoutTicks = 180)
+    public static void advancedProviderKeepsRecipesDuringUnrelatedGeneratorScan(GameTestHelper helper) {
+        assertRealProviderUnaffected(helper, new ResourceLocation("advanced_ae", "adv_pattern_provider"));
+    }
+
+    private static void assertRealProviderUnaffected(GameTestHelper helper, ResourceLocation providerId) {
+        var block = BuiltInRegistries.BLOCK.getOptional(providerId);
+        if (block.isEmpty()) {
+            helper.succeed();
+            return;
+        }
+        BlockPos pos = new BlockPos(1, 1, 1);
+        helper.setBlock(pos, block.orElseThrow());
+        helper.setBlock(pos.east(), appeng.core.definitions.AEBlocks.CREATIVE_ENERGY_CELL.block());
+        helper.runAfterDelay(20, () -> {
+            try {
+                var level = helper.getLevel();
+                var server = level.getServer();
+                var entity = level.getBlockEntity(helper.absolutePos(pos));
+                helper.assertTrue(entity != null, "ME provider block entity missing");
+                Object logic = entity.getClass().getMethod("getLogic").invoke(entity);
+                InternalInventory inv = (InternalInventory) logic.getClass()
+                        .getMethod("getPatternInv").invoke(logic);
+                var initial = AggregateCatalogMutationService.put(server, uniqueMachine(),
+                        "block.minecraft.crafting_table", testRecipes("existing-machine"));
+                ItemStack physical = new ItemStack(ModItems.AGGREGATE_PATTERN.get());
+                ModDataComponents.setAggregatePattern(physical, initial);
+                inv.setItemDirect(0, physical);
+                helper.runAfterDelay(40, () -> {
+                    try {
+                        var node = (IManagedGridNode) entity.getClass()
+                                .getMethod("getMainNode").invoke(entity);
+                        @SuppressWarnings("unchecked")
+                        var patterns = (List<IPatternDetails>) logic.getClass()
+                                .getMethod("getAvailablePatterns").invoke(logic);
+                        helper.assertTrue(node.isActive() && node.getGrid() != null && !patterns.isEmpty(),
+                                "Provider did not publish the first aggregate");
+                        IPatternDetails before = patterns.get(0);
+                        helper.assertTrue(node.getGrid().getCraftingService()
+                                        .getCraftingFor(before.getPrimaryOutput().what()).contains(before),
+                                "Initial provider was not indexed");
+                        AggregateCatalogMutationService.put(server, uniqueMachine(),
+                                "block.minecraft.furnace", testRecipes("new-unrelated-machine"));
+                        helper.runAfterDelay(5, () -> {
+                            try {
+                                @SuppressWarnings("unchecked")
+                                var after = (List<IPatternDetails>) logic.getClass()
+                                        .getMethod("getAvailablePatterns").invoke(logic);
+                                helper.assertTrue(after.contains(before),
+                                        "Unrelated generator cleared existing virtual pattern list");
+                                helper.assertTrue(node.getGrid().getCraftingService()
+                                                .getCraftingFor(before.getPrimaryOutput().what()).contains(before),
+                                        "Unrelated generator removed existing ME crafting recipe");
+                                helper.succeed();
+                            } catch (ReflectiveOperationException error) {
+                                throw new IllegalStateException(error);
+                            }
+                        });
+                    } catch (ReflectiveOperationException error) {
+                        throw new IllegalStateException(error);
+                    }
+                });
+            } catch (ReflectiveOperationException error) {
+                throw new IllegalStateException(error);
+            }
+        });
     }
 
     @GameTest(batch = "provider_compat", template = "empty", timeoutTicks = 110)
