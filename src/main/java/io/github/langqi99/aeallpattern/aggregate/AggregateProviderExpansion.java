@@ -25,6 +25,19 @@ public final class AggregateProviderExpansion {
     private AggregateProviderExpansion() {
     }
 
+    /** Avoid tracking plain addon providers; only aggregate hosts need startup recovery. */
+    public static boolean containsAggregate(InternalInventory inventory) {
+        if (inventory == null) {
+            return false;
+        }
+        for (int slot = 0; slot < inventory.size(); slot++) {
+            if (ModDataComponents.hasAggregatePattern(inventory.getStackInSlot(slot))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Publishes every child of every aggregate pattern held in {@code inventory}.
      *
