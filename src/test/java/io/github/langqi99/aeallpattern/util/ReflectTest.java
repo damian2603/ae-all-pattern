@@ -22,7 +22,7 @@ class ReflectTest {
     void findsInheritedProtectedRefreshMethod() throws Exception {
         ChildProvider provider = new ChildProvider();
         Reflect.invokeDeclared(provider, "updatePatterns");
-        assertEquals(1, provider.refreshes);
+        assertEquals(1, ((ParentProvider) provider).refreshes);
     }
 
     @Test
