@@ -20,9 +20,20 @@ public final class AggregateCraftingIndexProbe {
     }
 
     public static boolean isIndexed(IManagedGridNode node, List<IPatternDetails> patterns) {
-        if (node == null || !node.isActive() || node.getGrid() == null
-                || patterns == null || patterns.isEmpty()) {
+        return isIndexed(node, patterns, false);
+    }
+
+    /**
+     * A provider can temporarily lose its *local* virtual pattern list during
+     * a reload. The crafting-index lookup alone cannot detect that situation.
+     */
+    public static boolean isIndexed(
+            IManagedGridNode node, List<IPatternDetails> patterns, boolean expectsChildren) {
+        if (node == null || !node.isActive() || node.getGrid() == null || patterns == null) {
             return true;
+        }
+        if (patterns.isEmpty()) {
+            return !expectsChildren;
         }
 
         IPatternDetails sample = null;
@@ -39,7 +50,7 @@ public final class AggregateCraftingIndexProbe {
         }
         // A fully deselected or still-expanding aggregate legitimately publishes no recipes.
         if (sample == null) {
-            return true;
+            return !expectsChildren;
         }
 
         var service = node.getGrid().getCraftingService();
