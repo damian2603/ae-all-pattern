@@ -301,6 +301,15 @@ dependencies {
         modRuntimeOnly "maven.modrinth:qO33ACjS:OFILEfwe"
     }
 
+    // Optional real PackagedDraconic 1.20.1 fixture: no required compile-time
+    // dependency, but CI verifies the reflection bridge against the addon binary.
+    if (providers.gradleProperty('runtime_packaged_draconic').getOrElse('false').toBoolean()) {
+        modRuntimeOnly "maven.modrinth:2gq0ALnz:en274HWr" // CodeChicken Lib 4.4.0.509
+        modRuntimeOnly "maven.modrinth:iFDWVIFV:qFTHdrDH" // Brandon's Core 3.2.1.302
+        modRuntimeOnly "maven.modrinth:nBqivi8H:tkerHB19" // Draconic Evolution 3.1.2.604
+        modRuntimeOnly "maven.modrinth:dNduUQBR:SAApEN0n" // PackagedDraconic 3.1.2.9
+    }
+
     // Mekanism factory addons are tested separately from base Mekanism so a
     // broken addon alias cannot hide inside the broad full-runtime job.
     if (project.property('runtime_mekanism_addons').toBoolean()) {
