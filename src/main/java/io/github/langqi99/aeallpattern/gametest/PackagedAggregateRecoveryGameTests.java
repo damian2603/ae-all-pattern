@@ -5,6 +5,7 @@ import appeng.api.stacks.AEItemKey;
 import appeng.api.stacks.GenericStack;
 import io.github.langqi99.aeallpattern.AeAllPattern;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternKind;
+import io.github.langqi99.aeallpattern.aggregate.AggregateCatalogMutationService;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternLibrary;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternSelection;
 import io.github.langqi99.aeallpattern.aggregate.AggregateProviderRefreshService;
@@ -78,6 +79,59 @@ public final class PackagedAggregateRecoveryGameTests {
                 helper.runAfterDelay(20, () -> {
                     helper.assertTrue(list.size() == 2,
                             "PackagedAuto lost child recipes after catalog refresh without reinsertion");
+                    helper.succeed();
+                });
+            } catch (ReflectiveOperationException error) {
+                throw new IllegalStateException(error);
+            }
+        });
+    }
+
+    @GameTest(batch = "provider_compat", template = "empty", timeoutTicks = 160)
+    public static void packagedProviderRefreshesOnlyChangedCatalog(GameTestHelper helper) {
+        var block = BuiltInRegistries.BLOCK.getOptional(id("packagedauto:packaging_provider"));
+        if (block.isEmpty()) { helper.succeed(); return; }
+        var pos = new BlockPos(1, 1, 1);
+        helper.setBlock(pos, block.get());
+        helper.setBlock(pos.east(), appeng.core.definitions.AEBlocks.CREATIVE_ENERGY_CELL.block());
+        helper.runAfterDelay(12, () -> {
+            try {
+                var level = helper.getLevel();
+                BlockEntity entity = level.getBlockEntity(helper.absolutePos(pos));
+                helper.assertTrue(entity instanceof ICraftingProvider, "Missing ME Packaging Provider");
+                Object handler = entity.getClass().getMethod("getItemHandler").invoke(entity);
+                ItemStack item = aggregate(helper, false);
+                ((IItemHandlerModifiable) handler).setStackInSlot(0, item);
+                @SuppressWarnings("unchecked")
+                List<Object> list = (List<Object>) entity.getClass().getField("recipeList").get(entity);
+                helper.assertTrue(list.size() == 2, "Initial PackagedAuto catalog did not load");
+
+                var ref = ModDataComponents.getAggregatePattern(item);
+                helper.assertTrue(ref != null, "Missing catalog UUID on fixture pattern");
+                AggregateCatalogMutationService.replace(
+                        level.getServer(), ref.libraryId(), ref.catalystId(),
+                        "aeallpattern.packaged_test",
+                        List.of(new AggregateRecipe("packaged-regression-updated",
+                                id("aeallpattern:packaged_regression_updated"),
+                                AggregatePatternKind.PROCESSING,
+                                List.of(new GenericStack(AEItemKey.of(Items.COAL), 1)),
+                                List.of(new GenericStack(AEItemKey.of(Items.GOLD_INGOT), 1)), 20)));
+                // Physical pattern must not be reinserted: this verifies the newly
+                // library-scoped notification reaches PackagedAuto.
+                helper.runAfterDelay(20, () -> {
+                    helper.assertTrue(list.size() == 1,
+                            "UUID-scoped catalog update did not republish PackagedAuto recipes");
+                    try {
+                        @SuppressWarnings("unchecked")
+                        List<ItemStack> outputs = (List<ItemStack>) list.get(0).getClass()
+                                .getMethod("getOutputs").invoke(list.get(0));
+                        helper.assertTrue(!outputs.isEmpty() && outputs.get(0).is(Items.GOLD_INGOT),
+                                "PackagedAuto still publishes the old Aggregate Pattern output");
+                    } catch (ReflectiveOperationException error) {
+                        throw new IllegalStateException(error);
+                    }
+                    helper.assertTrue(((IItemHandlerModifiable) handler).getStackInSlot(0).is(
+                            ModItems.AGGREGATE_PATTERN.get()), "Physical Aggregate Pattern was removed");
                     helper.succeed();
                 });
             } catch (ReflectiveOperationException error) {
