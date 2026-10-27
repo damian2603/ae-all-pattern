@@ -141,6 +141,16 @@ public final class AggregatePatternExpander {
      * temporarily publish zero recipes while their async scan restarted.
      */
     public static void invalidateLibrary(MinecraftServer server, UUID libraryId) {
+        invalidateLibrary(server, libraryId, List.of());
+    }
+
+    /**
+     * Also evict children removed from the previous revision. Processing
+     * packages use their own aggregate-package: namespace, while normal AE
+     * virtual children use aggregate:. Both must observe edited recipe data.
+     */
+    public static void invalidateLibrary(
+            MinecraftServer server, UUID libraryId, List<AggregateRecipe> previousRecipes) {
         var cached = EXPANSION_CACHE.get(server);
         if (cached != null) {
             cached.keySet().removeIf(key -> key.libraryId().equals(libraryId));
@@ -150,10 +160,15 @@ public final class AggregatePatternExpander {
         // recipe identities belonging to the updated catalog.
         var childCache = RECIPE_EXPANSION_CACHE.get(server);
         if (childCache != null) {
-            java.util.Set<String> prefixes = AggregatePatternLibrary.get(server)
-                    .recipes(server, libraryId).orElse(List.of()).stream()
-                    .map(recipe -> "aggregate:" + recipe.patternId())
-                    .collect(java.util.stream.Collectors.toSet());
+            java.util.Set<String> recipeIds = new java.util.HashSet<>();
+            previousRecipes.forEach(recipe -> recipeIds.add(recipe.patternId()));
+            AggregatePatternLibrary.get(server).recipes(server, libraryId)
+                    .orElse(List.of()).forEach(recipe -> recipeIds.add(recipe.patternId()));
+            java.util.Set<String> prefixes = new java.util.HashSet<>(recipeIds.size() * 2);
+            for (String recipeId : recipeIds) {
+                prefixes.add("aggregate:" + recipeId);
+                prefixes.add("aggregate-package:" + recipeId);
+            }
             childCache.keySet().removeIf(key -> {
                 String prefix = key.prefix();
                 int selectionSuffix = prefix.lastIndexOf(":sel=");
