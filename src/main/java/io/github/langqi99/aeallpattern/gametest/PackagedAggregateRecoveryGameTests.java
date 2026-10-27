@@ -45,7 +45,9 @@ public final class PackagedAggregateRecoveryGameTests {
                         List.of(new GenericStack(AEItemKey.of(Items.COAL), 1)),
                         List.of(new GenericStack(AEItemKey.of(Items.EMERALD), 1)), 20));
         var ref = AggregatePatternLibrary.get(server).put(server,
-                id("aeallpattern:packaged_recovery_fixture"), "aeallpattern.packaged_test", recipes);
+                id("aeallpattern:packaged_recovery_fixture_"
+                        + java.util.UUID.randomUUID().toString().replace("-", "")),
+                "aeallpattern.packaged_test", recipes);
         ItemStack stack = new ItemStack(ModItems.AGGREGATE_PATTERN.get());
         ModDataComponents.setAggregatePattern(stack, ref);
         if (disableSecond) {
