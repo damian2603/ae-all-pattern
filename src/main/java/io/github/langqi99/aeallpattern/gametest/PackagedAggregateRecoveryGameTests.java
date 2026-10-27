@@ -111,13 +111,14 @@ public final class PackagedAggregateRecoveryGameTests {
                 AggregateCatalogMutationService.replace(
                         level.getServer(), ref.libraryId(), ref.catalystId(),
                         "aeallpattern.packaged_test",
-                        List.of(new AggregateRecipe("packaged-regression-updated",
-                                id("aeallpattern:packaged_regression_updated"),
+                        List.of(new AggregateRecipe("packaged-regression-first",
+                                id("aeallpattern:packaged_regression_first"),
                                 AggregatePatternKind.PROCESSING,
                                 List.of(new GenericStack(AEItemKey.of(Items.COAL), 1)),
                                 List.of(new GenericStack(AEItemKey.of(Items.GOLD_INGOT), 1)), 20)));
-                // Physical pattern must not be reinserted: this verifies the newly
-                // library-scoped notification reaches PackagedAuto.
+                // Keep the same child pattern ID while changing its output. This
+                // catches stale aggregate-package: details in the child cache.
+                // Physical pattern must not be reinserted.
                 helper.runAfterDelay(20, () -> {
                     helper.assertTrue(list.size() == 1,
                             "UUID-scoped catalog update did not republish PackagedAuto recipes");
