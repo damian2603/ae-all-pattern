@@ -26,10 +26,11 @@ public final class AggregateCatalogMutationService {
                 .findFirst()
                 .map(AggregatePatternLibrary.Entry::libraryId)
                 .orElse(null);
+        List<AggregateRecipe> previous = existing == null
+                ? List.of() : library.recipes(server, existing).orElse(List.of());
         // Clicking the same machine again often yields an identical catalog.
         // Return another valid physical item without touching pages or ME indexes.
-        if (existing != null && library.recipes(server, existing)
-                .map(recipes::equals).orElse(false)) {
+        if (existing != null && previous.equals(recipes)) {
             return new AggregatePatternRef(existing, catalystId);
         }
         AggregatePatternRef ref = library.put(server, catalystId, machineTranslationKey, recipes);
@@ -37,7 +38,7 @@ public final class AggregateCatalogMutationService {
             // put() deliberately reuses the UUID so physical copies of this
             // aggregate continue pointing at the new catalog. Only providers
             // holding this UUID need to be reindexed.
-            refreshOnlyChangedLibrary(server, ref.libraryId());
+            refreshOnlyChangedLibrary(server, ref.libraryId(), previous);
         }
         return ref;
     }
@@ -45,14 +46,17 @@ public final class AggregateCatalogMutationService {
     public static AggregatePatternRef replace(
             MinecraftServer server, UUID libraryId, ResourceLocation catalystId,
             String machineTranslationKey, List<AggregateRecipe> recipes) {
-        AggregatePatternRef ref = AggregatePatternLibrary.get(server).replace(
+        AggregatePatternLibrary library = AggregatePatternLibrary.get(server);
+        List<AggregateRecipe> previous = library.recipes(server, libraryId).orElse(List.of());
+        AggregatePatternRef ref = library.replace(
                 server, libraryId, catalystId, machineTranslationKey, recipes);
-        refreshOnlyChangedLibrary(server, ref.libraryId());
+        refreshOnlyChangedLibrary(server, ref.libraryId(), previous);
         return ref;
     }
 
-    private static void refreshOnlyChangedLibrary(MinecraftServer server, UUID libraryId) {
-        AggregatePatternExpander.invalidateLibrary(server, libraryId);
+    private static void refreshOnlyChangedLibrary(
+            MinecraftServer server, UUID libraryId, List<AggregateRecipe> previous) {
+        AggregatePatternExpander.invalidateLibrary(server, libraryId, previous);
         AggregateProviderRefreshService.requestRefreshForLibrary(server, libraryId);
     }
 }
