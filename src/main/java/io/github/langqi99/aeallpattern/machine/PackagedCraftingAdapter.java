@@ -311,20 +311,27 @@ final class PackagedCraftingAdapter implements MachineAdapter {
     }
 
     private static RecipeLayout layout(Spec spec, Recipe<?> recipe) throws ReflectiveOperationException {
-        List<Ingredient> ingredients = new ArrayList<>();
+        // Extended Crafting 1.20.1's CombinationRecipe has no getInput().
+        // The first element of getIngredients() is already the core catalyst;
+        // everything after it belongs on a marked pedestal. Calling getInput()
+        // used to throw NoSuchMethodException for every combination recipe,
+        // causing the generator to report "No usable patterns were found".
         boolean combination = spec.kind == Kind.COMBINATION;
-        if (combination) {
-            ingredients.add((Ingredient) recipe.getClass().getMethod("getInput").invoke(recipe));
+        List<Ingredient> ingredients = recipe.getIngredients();
+        if (combination && (ingredients.isEmpty() || ingredients.size() > 49)) {
+            throw new IllegalArgumentException(
+                    "Combination recipe requires 1 core and at most 48 pedestal items");
         }
-        ingredients.addAll(recipe.getIngredients());
 
         List<List<ItemStack>> alternatives = new ArrayList<>();
         List<Integer> positions = new ArrayList<>();
-        int offset = combination ? 1 : 0;
         for (int index = 0; index < ingredients.size(); index++) {
             Ingredient ingredient = ingredients.get(index);
             ItemStack[] variants = ingredient.getItems();
             if (variants.length == 0) {
+                if (combination && index == 0) {
+                    throw new IllegalArgumentException("Combination recipe has no core input");
+                }
                 continue;
             }
             List<ItemStack> choices = java.util.Arrays.stream(variants)
@@ -333,10 +340,10 @@ final class PackagedCraftingAdapter implements MachineAdapter {
                     .limit(AggregateInputSlot.configuredAlternativeLimit())
                     .toList();
             alternatives.add(choices);
-            positions.add(index - offset);
+            positions.add(index);
         }
-        if (alternatives.isEmpty()) {
-            throw new IllegalArgumentException("recipe has no item inputs");
+        if (alternatives.isEmpty() || (combination && alternatives.get(0).isEmpty())) {
+            throw new IllegalArgumentException("recipe has no item inputs or core catalyst");
         }
         int width = combination ? 0 : invokeIntOr(recipe, "getWidth", spec.gridSize);
         int height = combination ? 0 : invokeIntOr(recipe, "getHeight", spec.gridSize);
