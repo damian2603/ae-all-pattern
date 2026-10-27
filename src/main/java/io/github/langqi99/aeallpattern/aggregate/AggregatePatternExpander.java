@@ -90,7 +90,9 @@ public final class AggregatePatternExpander {
     }
 
     /** Key for the per-child cache: the caller's virtual id prefix plus the recipe identity. */
-    private record RecipeCacheKey(String prefix, String patternId, int optionsFlags, long generation) {
+    private record RecipeCacheKey(
+            String prefix, String patternId, int recipeContentHash,
+            int optionsFlags, long generation) {
     }
 
     /** Resolved inputs of one expansion request, shared by both paths. */
@@ -433,7 +435,8 @@ public final class AggregatePatternExpander {
                     }
                 });
         RecipeCacheKey key = new RecipeCacheKey(
-                virtualIdPrefix, recipe.patternId(), options.flags(), RecipeIndexService.generation());
+                virtualIdPrefix, recipe.patternId(), recipe.hashCode(),
+                options.flags(), RecipeIndexService.generation());
         IPatternDetails cached = cache.get(key);
         if (cached != null) {
             return cached;
