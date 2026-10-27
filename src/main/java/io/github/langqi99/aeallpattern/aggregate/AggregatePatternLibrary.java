@@ -32,6 +32,17 @@ public final class AggregatePatternLibrary extends SavedData {
     private static final String INDEX_NAME = AeAllPattern.MOD_ID + "_aggregate_index";
 
     private final Map<UUID, Entry> entries = new LinkedHashMap<>();
+    // Rebuilding an 18k-entry immutable list on each provider or UI lookup is
+    // avoidable O(N) work. Cache only the frozen index of Page references, never
+    // the SavedData pages themselves. This is ephemeral and never serialized.
+    private static final int MAX_CACHED_CATALOGS = 32;
+    private final Map<UUID, List<AggregateRecipe>> recipeReadCache =
+            new LinkedHashMap<>(32, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<UUID, List<AggregateRecipe>> eldest) {
+                    return size() > MAX_CACHED_CATALOGS;
+                }
+            };
 
     public static AggregatePatternLibrary get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(
@@ -62,6 +73,7 @@ public final class AggregatePatternLibrary extends SavedData {
         Entry updated = new Entry(id, catalystId, machineTranslationKey, hash, recipes.size(), pageCount,
                 hash, recipes.size(), 0, 1, recipes.size());
         entries.put(id, updated);
+        recipeReadCache.remove(id);
         setDirty();
         return updated.toRef();
     }
@@ -93,6 +105,7 @@ public final class AggregatePatternLibrary extends SavedData {
                 libraryId, catalystId, machineTranslationKey, hash, recipes.size(), pageCount,
                 hash, Math.max(1, recipes.size()), 0, 1, recipes.size());
         entries.put(libraryId, updated);
+        recipeReadCache.remove(libraryId);
         setDirty();
         return updated.toRef();
     }
@@ -101,6 +114,10 @@ public final class AggregatePatternLibrary extends SavedData {
         Entry entry = entries.get(libraryId);
         if (entry == null) {
             return Optional.empty();
+        }
+        List<AggregateRecipe> cached = recipeReadCache.get(libraryId);
+        if (cached != null) {
+            return Optional.of(cached);
         }
         List<AggregateRecipe> recipes = new ArrayList<>(entry.recipeCount());
         var storage = server.overworld().getDataStorage();
@@ -115,7 +132,9 @@ public final class AggregatePatternLibrary extends SavedData {
         if (recipes.size() != entry.recipeCount()) {
             return Optional.empty();
         }
-        return Optional.of(List.copyOf(recipes));
+        List<AggregateRecipe> frozen = List.copyOf(recipes);
+        recipeReadCache.put(libraryId, frozen);
+        return Optional.of(frozen);
     }
 
     public Optional<Entry> find(UUID libraryId) {
