@@ -37,6 +37,26 @@ public final class PackagedAutoAggregateCompat {
         }
     }
 
+    /** Tests whether a packaging provider holds the changed saved catalog. */
+    public static boolean containsLibrary(Object provider, java.util.UUID libraryId) {
+        if (provider == null || libraryId == null) {
+            return false;
+        }
+        try {
+            Object handler = provider.getClass().getMethod("getItemHandler").invoke(provider);
+            ItemStack stack = (ItemStack) handler.getClass()
+                    .getMethod("getStackInSlot", int.class).invoke(handler, 0);
+            if (!isAggregatePattern(stack)) {
+                return false;
+            }
+            var ref = ModDataComponents.getAggregatePattern(stack);
+            return ref != null && libraryId.equals(ref.libraryId());
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            AeAllPattern.LOGGER.debug("Failed to resolve packaging provider catalog UUID", error);
+            return false;
+        }
+    }
+
     /**
      * PackagingProviderItemHandler.load() may run before its block entity has a world.
      * Retry the aggregate catalog on the first server tick and register for later JEI/EMI rescans.
@@ -78,7 +98,8 @@ public final class PackagedAutoAggregateCompat {
             // PackagedAuto only calls updateRecipeList for inventory changes. A catalog
             // refresh changes the recipes behind a UUID without changing the ItemStack.
             AggregateProviderRefreshService.track(
-                    level.getServer(), provider, PackagedAutoAggregateCompat::refreshProviderCatalog);
+                    level.getServer(), provider, PackagedAutoAggregateCompat::refreshProviderCatalog,
+                    null, PackagedAutoAggregateCompat::containsLibrary);
             @SuppressWarnings("unchecked")
             List<Object> recipeList = (List<Object>) provider.getClass().getField("recipeList").get(provider);
             recipeList.clear();
