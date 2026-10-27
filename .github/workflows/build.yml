@@ -322,7 +322,7 @@ jobs:
               -Pruntime_mystical_agriculture=false -Pruntime_create=false
               -Pruntime_industrial_foregoing=false -Pruntime_neoecoae=false
               -Pruntime_ae_provider_addons=false -Pruntime_packaged_addons=true
-              -Pruntime_mekanism_addons=false
+              -Pruntime_mekanism_addons=false -Ppackaged_combination_fixture=true
               -Pexpected_test_mods=packagedauto,packagedexcrafting,extendedcrafting,cucumber
               -Pforbidden_test_mods=jei,emi,toomanyrecipeviewers
           - name: PackagedDraconic-Fusion
