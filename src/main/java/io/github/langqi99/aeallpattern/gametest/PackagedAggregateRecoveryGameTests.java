@@ -118,6 +118,16 @@ public final class PackagedAggregateRecoveryGameTests {
                                 AggregatePatternKind.PROCESSING,
                                 List.of(new GenericStack(AEItemKey.of(Items.COAL), 1)),
                                 List.of(new GenericStack(AEItemKey.of(Items.GOLD_INGOT), 1)), 20)));
+                var saved = AggregatePatternLibrary.get(level.getServer())
+                        .recipes(level.getServer(), ref.libraryId()).orElseThrow();
+                helper.assertTrue(saved.size() == 1
+                                && saved.get(0).outputs().get(0).what()
+                                        .equals(AEItemKey.of(Items.GOLD_INGOT)),
+                        "Catalog replace did not persist the new Gold output: " + saved);
+                helper.assertTrue(
+                        io.github.langqi99.aeallpattern.machine.PackagedAutoAggregateCompat
+                                .containsLibrary(entity, ref.libraryId()),
+                        "PackagedAuto provider does not match its own aggregate UUID");
                 // Keep the same child pattern ID while changing its output. This
                 // catches stale aggregate-package: details in the child cache.
                 // Physical pattern must not be reinserted.
@@ -129,7 +139,7 @@ public final class PackagedAggregateRecoveryGameTests {
                         List<ItemStack> outputs = (List<ItemStack>) list.get(0).getClass()
                                 .getMethod("getOutputs").invoke(list.get(0));
                         helper.assertTrue(!outputs.isEmpty() && outputs.get(0).is(Items.GOLD_INGOT),
-                                "PackagedAuto still publishes the old Aggregate Pattern output");
+                                "PackagedAuto still publishes the old Aggregate Pattern output: " + outputs);
                     } catch (ReflectiveOperationException error) {
                         throw new IllegalStateException(error);
                     }
