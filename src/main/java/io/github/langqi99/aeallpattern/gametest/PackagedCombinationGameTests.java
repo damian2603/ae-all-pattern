@@ -58,13 +58,14 @@ public final class PackagedCombinationGameTests {
                         && pedestalBlock.isPresent(),
                 "Combination Crafter, Marked Pedestal or Packaging Provider is not registered");
 
-        BlockPos crafterPos = new BlockPos(2, 1, 2);
-        BlockPos providerPos = new BlockPos(2, 1, 3);
+        // Keep the entire fixture within the small GameTest plotting footprint.
+        BlockPos crafterPos = new BlockPos(1, 1, 1);
+        BlockPos providerPos = new BlockPos(0, 1, 1);
         helper.setBlock(crafterPos, crafterBlock.orElseThrow());
-        helper.setBlock(new BlockPos(0, 1, 2), pedestalBlock.orElseThrow());
-        helper.setBlock(new BlockPos(2, 1, 0), pedestalBlock.orElseThrow());
+        helper.setBlock(new BlockPos(2, 1, 1), pedestalBlock.orElseThrow());
+        helper.setBlock(new BlockPos(1, 1, 2), pedestalBlock.orElseThrow());
         helper.setBlock(providerPos, providerBlock.orElseThrow());
-        helper.setBlock(new BlockPos(2, 1, 4),
+        helper.setBlock(new BlockPos(0, 1, 2),
                 appeng.core.definitions.AEBlocks.CREATIVE_ENERGY_CELL.block());
 
         BlockEntity machine = level.getBlockEntity(helper.absolutePos(crafterPos));
