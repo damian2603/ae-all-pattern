@@ -158,10 +158,6 @@ public final class AggregateGenerationService {
         return !new HashSet<>(incomingPatternIds).containsAll(savedPatternIds);
     }
 
-    /** Compatibility predicate retained for earlier empty-refresh regression tests. */
-    static boolean shouldPreserveOnEmptyRefresh(boolean replacing, int savedCount, int incomingCount) {
-        return replacing && savedCount > 0 && incomingCount == 0;
-    }
 
     private static boolean validTarget(GenerateAggregatePayload payload, ServerPlayer player) {
         if (payload.replacementLibraryId() != null) {
