@@ -7,6 +7,7 @@ import appeng.api.stacks.GenericStack;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Predicate;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 
@@ -65,6 +66,69 @@ public final class AggregatePatternSearch {
             }
         }
         return List.copyOf(matched);
+    }
+
+    /** A filtered UI page plus exact totals, without storing every matching recipe. */
+    public record SearchPage(
+            List<AggregateRecipe> recipes, int totalMatches, int selectedMatches, int pageIndex) {
+        public SearchPage {
+            recipes = List.copyOf(recipes);
+        }
+    }
+
+    /**
+     * Count all matches and enabled recipes in one scan while retaining at most
+     * one UI page. Large modpacks should not allocate a full 18k+ result list for
+     * every search request. Only an out-of-range page needs a second scan.
+     */
+    public static SearchPage searchPage(
+            List<AggregateRecipe> recipes, String query, AggregateSearchMode mode,
+            int requestedPage, int pageSize, Predicate<String> enabled) {
+        int safePage = Math.max(0, requestedPage);
+        int safeSize = Math.max(1, pageSize);
+        String[] tokens = query == null || query.isBlank() ? null : tokenize(query);
+        long start = (long) safePage * safeSize;
+        List<AggregateRecipe> visible = new ArrayList<>(Math.min(recipes.size(), safeSize));
+        int matches = 0;
+        int selected = 0;
+        for (AggregateRecipe recipe : recipes) {
+            if (!matchesQuery(recipe, mode, tokens)) {
+                continue;
+            }
+            if (enabled.test(recipe.patternId())) {
+                selected++;
+            }
+            if (matches >= start && (long) matches < start + safeSize) {
+                visible.add(recipe);
+            }
+            matches++;
+        }
+        int lastPage = Math.max(0, (matches - 1) / safeSize);
+        if (safePage > lastPage) {
+            safePage = lastPage;
+            start = (long) safePage * safeSize;
+            visible.clear();
+            int index = 0;
+            for (AggregateRecipe recipe : recipes) {
+                if (matchesQuery(recipe, mode, tokens)) {
+                    if (index >= start && (long) index < start + safeSize) {
+                        visible.add(recipe);
+                    }
+                    index++;
+                    if ((long) index >= start + safeSize) {
+                        break;
+                    }
+                }
+            }
+        }
+        return new SearchPage(visible, matches, selected, safePage);
+    }
+
+    private static boolean matchesQuery(
+            AggregateRecipe recipe, AggregateSearchMode mode, String[] tokens) {
+        return tokens == null
+                || ((mode != AggregateSearchMode.OUTPUTS && matchesRecipeTokens(recipe, tokens, false))
+                    || (mode != AggregateSearchMode.INPUTS && matchesRecipeTokens(recipe, tokens, true)));
     }
 
     /** True when any input (or output, per mode) stack of the recipe matches the query. */
