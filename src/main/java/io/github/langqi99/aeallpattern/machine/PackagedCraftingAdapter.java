@@ -38,6 +38,38 @@ import net.minecraftforge.common.capabilities.ForgeCapabilities;
 /** Optional, dependency-free bridge to PackagedAuto's atomic crafting-machine protocol. */
 final class PackagedCraftingAdapter implements MachineAdapter {
     private static final ResourceLocation ID = id("aeallpattern", "packaged_crafting");
+    // The PackagedExCrafting 1.20.1 recipe-info constructors differ from newer
+    // versions. Discover the matching ABI once per class instead of throwing
+    // NoSuchMethodException for every recipe in a large catalog.
+    private static final Map<String, RecipeInfoFactory> RECIPE_INFO_FACTORIES =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private record RecipeInfoFactory(
+            Constructor<?> direct, Constructor<?> defaultConstructor, Method generate) {
+    }
+
+    private static RecipeInfoFactory recipeInfoFactory(Spec spec)
+            throws ReflectiveOperationException {
+        RecipeInfoFactory cached = RECIPE_INFO_FACTORIES.get(spec.recipeInfoClass);
+        if (cached != null) {
+            return cached;
+        }
+        Class<?> infoClass = Class.forName(spec.recipeInfoClass);
+        Constructor<?> direct = null;
+        try {
+            direct = spec.kind == Kind.COMBINATION
+                    ? infoClass.getConstructor(ResourceLocation.class, ItemStack.class, List.class)
+                    : infoClass.getConstructor(ResourceLocation.class, int.class, int.class, List.class);
+        } catch (NoSuchMethodException ignored) {
+            // The 1.20.1 encoder path below handles this ABI.
+        }
+        Constructor<?> fallback = direct == null ? infoClass.getConstructor() : null;
+        Method generate = direct == null ? infoClass.getMethod(
+                "generateFromStacks", List.class, List.class, net.minecraft.world.level.Level.class) : null;
+        RecipeInfoFactory resolved = new RecipeInfoFactory(direct, fallback, generate);
+        RecipeInfoFactory earlier = RECIPE_INFO_FACTORIES.putIfAbsent(spec.recipeInfoClass, resolved);
+        return earlier == null ? resolved : earlier;
+    }
     private static final Map<ResourceLocation, Spec> MACHINES = machineSpecs();
     private static final Map<ResourceLocation, ResourceLocation> AGGREGATE_CATALYST_ALIASES = Map.ofEntries(
             alias("extendedcrafting", "basic_table", "packagedexcrafting", "basic_crafter"),
@@ -353,24 +385,19 @@ final class PackagedCraftingAdapter implements MachineAdapter {
     private static Object createRecipeInfo(
             ServerLevel level, Spec spec, ResourceLocation recipeId, RecipeLayout layout, List<ItemStack> supplied)
             throws ReflectiveOperationException {
-        Class<?> infoClass = Class.forName(spec.recipeInfoClass);
-        try {
-            if (spec.kind == Kind.COMBINATION) {
-                Constructor<?> constructor = infoClass.getConstructor(ResourceLocation.class, ItemStack.class, List.class);
-                return constructor.newInstance(
-                        recipeId, supplied.get(0).copy(), copy(supplied.subList(1, supplied.size())));
-            }
-            Constructor<?> constructor = infoClass.getConstructor(
-                    ResourceLocation.class, int.class, int.class, List.class);
-            return constructor.newInstance(recipeId, layout.width, layout.height, craftingMatrix(layout, supplied));
-        } catch (NoSuchMethodException ignored) {
-            // PackagedExCrafting 1.20.1 builds their recipe info through the encoder's
-            // 9x9 slot layout instead of the constructors used by newer releases.
-            Object info = infoClass.getConstructor().newInstance();
-            Method generate = infoClass.getMethod("generateFromStacks", List.class, List.class, net.minecraft.world.level.Level.class);
-            generate.invoke(info, encoderStacks(spec, layout, supplied), List.of(), level);
-            return info;
+        RecipeInfoFactory factory = recipeInfoFactory(spec);
+        if (factory.direct() != null) {
+            return spec.kind == Kind.COMBINATION
+                    ? factory.direct().newInstance(
+                            recipeId, supplied.get(0).copy(), copy(supplied.subList(1, supplied.size())))
+                    : factory.direct().newInstance(
+                            recipeId, layout.width, layout.height, craftingMatrix(layout, supplied));
         }
+        // PackagedExCrafting 1.20.1 uses a 9x9 encoder rather than the newer
+        // constructor signatures. Both paths use the cached resolved ABI.
+        Object info = factory.defaultConstructor().newInstance();
+        factory.generate().invoke(info, encoderStacks(spec, layout, supplied), List.of(), level);
+        return info;
     }
 
     private static List<ItemStack> craftingMatrix(RecipeLayout layout, List<ItemStack> supplied) {
