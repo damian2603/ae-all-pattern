@@ -11,6 +11,7 @@ import io.github.langqi99.aeallpattern.registry.ModDataComponents;
 import io.github.langqi99.aeallpattern.registry.ModItems;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -82,19 +83,35 @@ public final class AggregateGenerationService {
         }
         var library = AggregatePatternLibrary.get(Objects.requireNonNull(player.getServer()));
         boolean refresh = payload.replacementLibraryId() != null;
-        // Missing JEI/EMI categories during startup must never erase the persisted
-        // catalog. A later manual generation can recover it, but existing providers
-        // would otherwise publish zero patterns and the item tooltip would show 0/0.
-        if (refresh && recipes.isEmpty()) {
+        // Startup viewer registration may be incomplete even if JEI/EMI reports a
+        // NONEMPTY recipe list. Do not replace a persisted catalog if a known
+        // recipe disappears: a 2,000 -> 1,900 scan is not proof that 100 recipes
+        // were removed from the pack. Explicit generator use can still rebuild
+        // that same UUID via AggregateCatalogMutationService.put().
+        if (refresh) {
             var existing = library.find(payload.replacementLibraryId());
-            if (shouldPreserveOnEmptyRefresh(true,
-                    existing.map(AggregatePatternLibrary.Entry::recipeCount).orElse(0), recipes.size())) {
-                AeAllPattern.LOGGER.warn(
-                        "Ignoring empty startup catalog for {} ({} saved recipes); keeping existing patterns",
-                        payload.replacementLibraryId(), existing.orElseThrow().recipeCount());
-                AggregateStartupRefreshState.markComplete(player.getServer(), payload.replacementLibraryId());
-                AggregateMetadataSyncService.sendToOnlinePlayers(player.getServer());
-                return;
+            if (existing.isPresent()) {
+                int savedCount = existing.orElseThrow().recipeCount();
+                if (savedCount > 0) {
+                    var savedRecipes = library.recipes(player.getServer(), payload.replacementLibraryId());
+                    List<String> savedIds = savedRecipes
+                            .map(saved -> saved.stream().map(AggregateRecipe::patternId).toList())
+                            .orElseGet(List::of);
+                    List<String> incomingIds = recipes.stream().map(AggregateRecipe::patternId).toList();
+                    if (shouldPreserveOnIncompleteRefresh(
+                            savedCount, savedIds, incomingIds, savedRecipes.isPresent())) {
+                        AeAllPattern.LOGGER.warn(
+                                "Ignoring incomplete JEI/EMI startup scan for {}: saved={}, incoming={}; "
+                                        + "keeping saved recipes. Use the generator on the machine "
+                                        + "to deliberately rebuild a changed catalog.",
+                                payload.replacementLibraryId(), savedCount, recipes.size());
+                        // Mark this server-session refresh as handled, so reconnecting
+                        // clients don't retry the same incomplete viewer snapshot.
+                        AggregateStartupRefreshState.markComplete(player.getServer(), payload.replacementLibraryId());
+                        AggregateMetadataSyncService.sendToOnlinePlayers(player.getServer());
+                        return;
+                    }
+                }
             }
         }
         var ref = refresh
@@ -123,7 +140,25 @@ public final class AggregateGenerationService {
                 Component.translatable(payload.machineTranslationKey()), recipes.size()), true);
     }
 
-    /** Prevents non-authoritative viewer rescans from destroying persistent recipes. */
+    /**
+     * A startup viewer scan is advisory: missing IDs or fewer recipes may mean
+     * JEI/EMI has not yet loaded every category. Never delete saved entries
+     * based on such a scan. This is not used for explicit generator actions.
+     */
+    static boolean shouldPreserveOnIncompleteRefresh(
+            int savedCount, List<String> savedPatternIds,
+            List<String> incomingPatternIds, boolean savedPagesReadable) {
+        if (savedCount <= 0) {
+            return false;
+        }
+        if (!savedPagesReadable || savedPatternIds.size() != savedCount
+                || incomingPatternIds.size() < savedCount) {
+            return true;
+        }
+        return !new HashSet<>(incomingPatternIds).containsAll(savedPatternIds);
+    }
+
+    /** Compatibility predicate retained for earlier empty-refresh regression tests. */
     static boolean shouldPreserveOnEmptyRefresh(boolean replacing, int savedCount, int incomingCount) {
         return replacing && savedCount > 0 && incomingCount == 0;
     }
