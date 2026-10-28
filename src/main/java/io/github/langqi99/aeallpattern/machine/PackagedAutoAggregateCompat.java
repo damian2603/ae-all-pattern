@@ -100,10 +100,13 @@ public final class PackagedAutoAggregateCompat {
             AggregateProviderRefreshService.track(
                     level.getServer(), provider, PackagedAutoAggregateCompat::refreshProviderCatalog,
                     null, PackagedAutoAggregateCompat::containsLibrary);
+            // Assemble first: a failing optional addon/recipe must never leave
+            // the provider's previously working recipe list empty.
+            List<Object> rebuilt = PackagedCraftingAdapter.packageRecipeInfos(level, stack);
             @SuppressWarnings("unchecked")
             List<Object> recipeList = (List<Object>) provider.getClass().getField("recipeList").get(provider);
             recipeList.clear();
-            recipeList.addAll(PackagedCraftingAdapter.packageRecipeInfos(level, stack));
+            recipeList.addAll(rebuilt);
             provider.getClass().getMethod("postPatternChange").invoke(provider);
         } catch (ReflectiveOperationException | RuntimeException error) {
             AeAllPattern.LOGGER.debug("Failed to refresh aggregate recipes in ME packaging provider", error);
