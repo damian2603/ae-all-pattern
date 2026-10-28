@@ -7,6 +7,7 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import io.github.langqi99.aeallpattern.recipe.RecipeSnapshot;
 import java.util.List;
 import java.util.Objects;
+import io.netty.buffer.Unpooled;
 
 import net.minecraft.network.FriendlyByteBuf;
 import io.github.langqi99.aeallpattern.network.FriendlyStreamCodec;
@@ -198,56 +199,17 @@ public record AggregateRecipe(
     }
 
     /**
-     * Upper-bound estimate of this recipe's on-wire size (registry-friendly buffer), used to
-     * split client upload pages below the protocol packet limit regardless of recipe
-     * complexity. Deliberately conservative: it must never under-estimate.
+     * Measure the actual wire format, including AE item components and arbitrarily
+     * sized NBT. A fixed metadata allowance can underestimate modded ItemStacks,
+     * causing upload pages to exceed Forge's packet limit.
      */
     public int encodedSizeEstimate() {
-        int size = utfSize(patternId);
-        size += resourceLocationSize(recipeId);
-        size += 1; // kind enum
-        size += varIntSize(inputSlots.size());
-        for (AggregateInputSlot slot : inputSlots) {
-            size += varIntSize(slot.alternatives().size());
-            for (GenericStack stack : slot.alternatives()) {
-                size += genericStackSize(stack);
-            }
-            size += 1; // item tag presence
-            if (slot.itemTag().isPresent()) {
-                size += resourceLocationSize(slot.itemTag().orElseThrow());
-            }
+        FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer(256));
+        try {
+            STREAM_CODEC.encode(buffer, this);
+            return buffer.readableBytes();
+        } finally {
+            buffer.release();
         }
-        size += varIntSize(outputs.size());
-        for (GenericStack stack : outputs) {
-            size += genericStackSize(stack);
-        }
-        size += varIntSize(probabilisticOutputMask);
-        size += varIntSize(processingTicks);
-        return size;
-    }
-
-    private static int utfSize(String text) {
-        return varIntSize(text.length()) + text.length();
-    }
-
-    private static int resourceLocationSize(ResourceLocation id) {
-        return utfSize(id.getNamespace()) + utfSize(id.getPath());
-    }
-
-    private static int varIntSize(long value) {
-        int size = 1;
-        while (value >= 0x80) {
-            value >>>= 7;
-            size++;
-        }
-        return size;
-    }
-
-    private static int genericStackSize(GenericStack stack) {
-        appeng.api.stacks.AEKey key = stack.what();
-        // key type id + key id + a generous pad for AEItemKey components / NBT
-        // (unbounded in size) + amount varLong + count int.
-        return resourceLocationSize(key.getType().getId()) + resourceLocationSize(key.getId())
-                + 192 + varIntSize(stack.amount());
     }
 }
