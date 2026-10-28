@@ -32,17 +32,39 @@ public final class AggregatePatternLibrary extends SavedData {
     private static final String INDEX_NAME = AeAllPattern.MOD_ID + "_aggregate_index";
 
     private final Map<UUID, Entry> entries = new LinkedHashMap<>();
-    // Rebuilding an 18k-entry immutable list on each provider or UI lookup is
-    // avoidable O(N) work. Cache only the frozen index of Page references, never
-    // the SavedData pages themselves. This is ephemeral and never serialized.
-    private static final int MAX_CACHED_CATALOGS = 32;
+    // Reuse immutable recipe lists between provider lookups instead of rebuilding
+    // 18k-element catalogs repeatedly. Bound both entry count and total references:
+    // 32 independent million-recipe lists would otherwise pin a lot of memory.
+    // The cache is ephemeral; it never changes on-disk SavedData.
+    private static final int MAX_CACHED_CATALOGS = 8;
+    private static final int MAX_CACHED_RECIPE_REFERENCES = 65_536;
     private final Map<UUID, List<AggregateRecipe>> recipeReadCache =
-            new LinkedHashMap<>(32, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<UUID, List<AggregateRecipe>> eldest) {
-                    return size() > MAX_CACHED_CATALOGS;
-                }
-            };
+            new LinkedHashMap<>(16, 0.75f, true);
+    private int cachedRecipeReferences;
+
+    private void invalidateCachedRecipes(UUID libraryId) {
+        List<AggregateRecipe> removed = recipeReadCache.remove(libraryId);
+        if (removed != null) {
+            cachedRecipeReferences -= removed.size();
+        }
+    }
+
+    private void rememberRecipes(UUID libraryId, List<AggregateRecipe> recipes) {
+        invalidateCachedRecipes(libraryId);
+        if (recipes.size() > MAX_CACHED_RECIPE_REFERENCES) {
+            // A single exceptionally large catalog is still readable, just not cached.
+            return;
+        }
+        recipeReadCache.put(libraryId, recipes);
+        cachedRecipeReferences += recipes.size();
+        var entries = recipeReadCache.entrySet().iterator();
+        while ((recipeReadCache.size() > MAX_CACHED_CATALOGS
+                || cachedRecipeReferences > MAX_CACHED_RECIPE_REFERENCES) && entries.hasNext()) {
+            var eldest = entries.next();
+            cachedRecipeReferences -= eldest.getValue().size();
+            entries.remove();
+        }
+    }
 
     public static AggregatePatternLibrary get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(
@@ -73,7 +95,7 @@ public final class AggregatePatternLibrary extends SavedData {
         Entry updated = new Entry(id, catalystId, machineTranslationKey, hash, recipes.size(), pageCount,
                 hash, recipes.size(), 0, 1, recipes.size());
         entries.put(id, updated);
-        recipeReadCache.remove(id);
+        invalidateCachedRecipes(id);
         setDirty();
         return updated.toRef();
     }
@@ -105,7 +127,7 @@ public final class AggregatePatternLibrary extends SavedData {
                 libraryId, catalystId, machineTranslationKey, hash, recipes.size(), pageCount,
                 hash, Math.max(1, recipes.size()), 0, 1, recipes.size());
         entries.put(libraryId, updated);
-        recipeReadCache.remove(libraryId);
+        invalidateCachedRecipes(libraryId);
         setDirty();
         return updated.toRef();
     }
@@ -133,7 +155,7 @@ public final class AggregatePatternLibrary extends SavedData {
             return Optional.empty();
         }
         List<AggregateRecipe> frozen = List.copyOf(recipes);
-        recipeReadCache.put(libraryId, frozen);
+        rememberRecipes(libraryId, frozen);
         return Optional.of(frozen);
     }
 
