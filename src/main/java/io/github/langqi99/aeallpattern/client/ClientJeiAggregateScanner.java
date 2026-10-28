@@ -78,11 +78,14 @@ public final class ClientJeiAggregateScanner {
      * sizes rather than a fixed recipe count; 20 KiB leaves room for packet headers.
      */
     private static final int MAX_UPLOAD_PAGE_BYTES = 20_000;
+    // Sending hundreds of catalog pages in one tick causes a client frame spike.
+    private static final int UPLOAD_PAGES_PER_TICK = 8;
     /** How often the action bar reports scan progress while a large scan runs. */
     private static final int PROGRESS_INTERVAL = 400;
     private static long lastScanTick = Long.MIN_VALUE;
     private static BlockPos lastScanPos = BlockPos.ZERO;
     private static ScanJob activeJob;
+    private static PendingUpload pendingUpload;
     private static volatile boolean vanillaScanRunning;
 
     private record ScanTarget(
@@ -109,6 +112,9 @@ public final class ClientJeiAggregateScanner {
         }
         lastScanTick = level.getGameTime();
         lastScanPos = event.getPos().immutable();
+        if (isBusy()) {
+            return;
+        }
 
         if (ModList.get().isLoaded("emi") && ModList.get().isLoaded("toomanyrecipeviewers")) {
             try {
@@ -128,19 +134,21 @@ public final class ClientJeiAggregateScanner {
         startScan(runtime.orElseThrow(), ClientRecipeMachineResolver.resolvePosition(level, event.getPos()));
     }
 
-    /** Client tick pump: advances the active scan job within the per-tick budget. */
+    /** Client tick pump: time-slice scanning and packet uploads independently. */
     public static void onClientTick(net.minecraftforge.event.TickEvent.ClientTickEvent event) {
         if (event.phase != net.minecraftforge.event.TickEvent.Phase.END) { return; }
-        ScanJob job = activeJob;
-        if (job == null) {
-            return;
-        }
         var minecraft = net.minecraft.client.Minecraft.getInstance();
-        if (minecraft.level == null) {
+        if (minecraft.level == null || minecraft.player == null) {
             activeJob = null;
+            pendingUpload = null;
             return;
         }
-        if (job.step()) {
+        PendingUpload upload = pendingUpload;
+        if (upload != null && upload.advance()) {
+            pendingUpload = null;
+        }
+        ScanJob job = activeJob;
+        if (job != null && job.step()) {
             activeJob = null;
             job.finish();
         }
@@ -186,7 +194,7 @@ public final class ClientJeiAggregateScanner {
     }
 
     public static boolean isBusy() {
-        return activeJob != null || vanillaScanRunning;
+        return activeJob != null || pendingUpload != null || vanillaScanRunning;
     }
 
     private static boolean startScan(
@@ -560,11 +568,35 @@ public final class ClientJeiAggregateScanner {
         if (pages.isEmpty()) {
             pages = List.of(List.of());
         }
-        for (int pageIndex = 0; pageIndex < pages.size(); pageIndex++) {
-            BindingNetwork.sendToServer(new GenerateAggregatePayload(
-                    uploadId, target.machinePos(), target.catalystId(), target.machineKey(),
-                    target.replacementLibraryId(), pageIndex, pages.size(),
-                    selected.size(), pages.get(pageIndex)));
+        pendingUpload = new PendingUpload(uploadId, target, pages, selected.size());
+    }
+
+    /** Queue pages on the client thread; preserve order and the upload UUID. */
+    private static final class PendingUpload {
+        private final UUID uploadId;
+        private final ScanTarget target;
+        private final List<List<AggregateRecipe>> pages;
+        private final int recipeCount;
+        private int nextPage;
+
+        private PendingUpload(
+                UUID uploadId, ScanTarget target, List<List<AggregateRecipe>> pages, int recipeCount) {
+            this.uploadId = uploadId;
+            this.target = target;
+            this.pages = pages;
+            this.recipeCount = recipeCount;
+        }
+
+        private boolean advance() {
+            int until = Math.min(pages.size(), nextPage + UPLOAD_PAGES_PER_TICK);
+            while (nextPage < until) {
+                BindingNetwork.sendToServer(new GenerateAggregatePayload(
+                        uploadId, target.machinePos(), target.catalystId(), target.machineKey(),
+                        target.replacementLibraryId(), nextPage, pages.size(),
+                        recipeCount, pages.get(nextPage)));
+                nextPage++;
+            }
+            return nextPage == pages.size();
         }
     }
 
