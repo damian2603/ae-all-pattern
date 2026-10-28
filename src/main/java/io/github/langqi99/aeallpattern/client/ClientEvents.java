@@ -26,6 +26,7 @@ import appeng.init.client.InitScreens;
 public final class ClientEvents {
     private static final double MAX_RENDER_DISTANCE_SQUARED = 96.0 * 96.0;
     private static int smokeTestTicks;
+    private static int smokeTitleTicks;
 
     private ClientEvents() {
     }
@@ -65,9 +66,22 @@ public final class ClientEvents {
             return;
         }
         if (!screenSmoke && !(minecraft.screen instanceof net.minecraft.client.gui.screens.TitleScreen)) {
+            // The game can be ticking on first-run onboarding, a warning screen,
+            // or a frozen loading UI without ever reaching the title screen.
+            // Surface the actual screen in Actions instead of silently hanging.
+            if (++smokeTestTicks % 200 == 0) {
+                AeAllPattern.LOGGER.warn("CLIENT_SMOKE_WAITING_FOR_TITLE screen={} ticks={}",
+                        minecraft.screen == null ? "<none>" : minecraft.screen.getClass().getName(),
+                        smokeTestTicks);
+            }
+            if (smokeTestTicks >= 1200) {
+                throw new IllegalStateException("Client smoke test did not reach TitleScreen: "
+                        + (minecraft.screen == null ? "<none>"
+                                : minecraft.screen.getClass().getName()));
+            }
             return;
         }
-        if (minecraft.screen == null || ++smokeTestTicks < 20) {
+        if (minecraft.screen == null || ++smokeTitleTicks < 20) {
             return;
         }
         for (String value : System.getProperty("aeallpattern.expectedTestMods", "").split(",")) {
