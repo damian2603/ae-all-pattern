@@ -194,8 +194,17 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+      # Minecraft 1.20.1 opens its first-run accessibility/onboarding screen
+      # when options.txt is absent. That screen is not TitleScreen, so the
+      # in-game smoke-test exit hook cannot fire in a fresh CI checkout.
+      - name: Preconfigure fresh client to open the title screen
+        run: |
+          mkdir -p run
+          printf 'onboardAccessibility:false\n' > run/options.txt
       - name: Start the real client and exit after the title screen
-        run: xvfb-run --auto-servernum ./gradlew runClient ${{ matrix.properties }} --stacktrace
+        run: |
+          timeout --signal=TERM --kill-after=15s 12m \
+            xvfb-run --auto-servernum ./gradlew runClient ${{ matrix.properties }} --stacktrace
       - name: Verify smoke-test completion marker
         run: grep -F 'CLIENT_SMOKE_TEST_PASSED' run/logs/latest.log
       - name: Upload client failure logs
