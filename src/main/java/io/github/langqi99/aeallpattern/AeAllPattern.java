@@ -12,6 +12,7 @@ import io.github.langqi99.aeallpattern.recipe.RecipeIndexService;
 import io.github.langqi99.aeallpattern.network.BindingNetwork;
 import io.github.langqi99.aeallpattern.network.BindingSyncService;
 import io.github.langqi99.aeallpattern.network.AggregateMetadataSyncService;
+import io.github.langqi99.aeallpattern.network.AggregateGenerationService;
 import io.github.langqi99.aeallpattern.client.ClientEvents;
 import io.github.langqi99.aeallpattern.config.AeAllPatternCommonConfig;
 import io.github.langqi99.aeallpattern.diagnostics.ModCommands;
@@ -48,6 +49,8 @@ public final class AeAllPattern {
         MinecraftForge.EVENT_BUS.addListener(BindingSyncService::onPlayerChangedDimension);
         MinecraftForge.EVENT_BUS.addListener(AggregateMetadataSyncService::onPlayerLoggedIn);
         MinecraftForge.EVENT_BUS.addListener(AggregateMetadataSyncService::onPlayerChangedDimension);
+        MinecraftForge.EVENT_BUS.addListener(AggregateGenerationService::onPlayerLoggedOut);
+        MinecraftForge.EVENT_BUS.addListener(AggregateGenerationService::onServerStopped);
         MinecraftForge.EVENT_BUS.addListener(ModCommands::register);
         MinecraftForge.EVENT_BUS.addListener((TickEvent.ServerTickEvent event) -> {
             if (event.phase == TickEvent.Phase.END) {
