@@ -23,6 +23,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.item.ItemStack;
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStoppedEvent;
 
 /** Validates and assembles bounded JEI scan pages before updating the server library. */
 @SuppressWarnings("deprecation")
@@ -33,6 +35,17 @@ public final class AggregateGenerationService {
     private static final Map<UploadKey, Upload> UPLOADS = new HashMap<>();
 
     private AggregateGenerationService() {
+    }
+
+    /** Never hold an unfinished client upload after disconnecting or leaving a world. */
+    public static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            UPLOADS.keySet().removeIf(key -> key.playerId().equals(player.getUUID()));
+        }
+    }
+
+    public static void onServerStopped(ServerStoppedEvent event) {
+        UPLOADS.clear();
     }
 
     public static void handle(GenerateAggregatePayload payload, ServerPlayer player) {
