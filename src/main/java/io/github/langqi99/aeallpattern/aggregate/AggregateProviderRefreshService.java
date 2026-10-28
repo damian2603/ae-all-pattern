@@ -164,11 +164,23 @@ public final class AggregateProviderRefreshService {
                 List<TrackedRefresh> providers = PROVIDERS.get(server);
                 if (providers != null) {
                     providers.removeIf(tracked -> tracked.owner().get() == null);
-                    List<TrackedRefresh> monitored = providers.stream()
-                            .filter(tracked -> tracked.healthy() != null).toList();
-                    if (!monitored.isEmpty()) {
+                    // Only one provider is inspected per second. Select it by
+                    // ordinal without allocating a new list of every eligible host.
+                    int monitoredCount = 0;
+                    for (TrackedRefresh tracked : providers) {
+                        if (tracked.healthy() != null) {
+                            monitoredCount++;
+                        }
+                    }
+                    if (monitoredCount > 0) {
                         int cursor = AUDIT_CURSOR.getOrDefault(server, 0);
-                        audit = monitored.get(Math.floorMod(cursor, monitored.size()));
+                        int selected = Math.floorMod(cursor, monitoredCount);
+                        for (TrackedRefresh tracked : providers) {
+                            if (tracked.healthy() != null && selected-- == 0) {
+                                audit = tracked;
+                                break;
+                            }
+                        }
                         AUDIT_CURSOR.put(server, (cursor + 1) & Integer.MAX_VALUE);
                     }
                 }
