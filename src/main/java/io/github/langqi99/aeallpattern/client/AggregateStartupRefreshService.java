@@ -49,7 +49,11 @@ public final class AggregateStartupRefreshService {
             if (AggregateMetadataView.revision() > awaitingMetadataRevision) {
                 awaitingMetadataRevision = -1;
                 acknowledgementTicks = 0;
-            } else if (++acknowledgementTicks < 600) {
+            } else if (ClientJeiAggregateScanner.isBusy()
+                    || (useEmi && EmiAggregateScanner.isBusy())
+                    || ++acknowledgementTicks < 600) {
+                // Do not time out while a large catalog is still being scanned
+                // or sent in bounded client-tick batches.
                 return;
             } else {
                 AeAllPattern.LOGGER.warn("Timed out waiting for an aggregate startup-refresh acknowledgement");
