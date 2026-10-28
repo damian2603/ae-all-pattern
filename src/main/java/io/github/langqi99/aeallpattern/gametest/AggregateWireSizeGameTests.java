@@ -52,8 +52,10 @@ public final class AggregateWireSizeGameTests {
                     "Recipe upload did not account for large ItemStack NBT");
 
             AggregateRecipe restored = AggregateRecipe.STREAM_CODEC.decode(buffer);
-            helper.assertTrue(restored.outputs().equals(recipe.outputs()),
-                    "AE2 key components were lost during upload round-trip");
+            helper.assertTrue(restored.outputs().size() == 1
+                            && restored.outputs().get(0).amount() == recipe.outputs().get(0).amount()
+                            && restored.outputs().get(0).what().equals(recipe.outputs().get(0).what()),
+                    "AE2 key components or stack amount were lost during upload round-trip");
         } finally {
             buffer.release();
         }
