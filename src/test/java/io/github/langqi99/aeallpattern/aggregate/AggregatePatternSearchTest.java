@@ -54,4 +54,54 @@ class AggregatePatternSearchTest {
         assertEquals(List.of(),
                 AggregatePatternSearch.filterRecipes(recipes, "=diamond", AggregateSearchMode.ALL, 0));
     }
+    @Test
+    void boundedSearchPagePreservesTotalsAndPageOrder() {
+        var first = recipe("first", Items.OAK_LOG, Items.DIAMOND);
+        var other = recipe("other", Items.DIRT, Items.EMERALD);
+        var last = recipe("last", Items.BIRCH_LOG, Items.DIAMOND);
+        var all = List.of(first, other, last);
+
+        var firstPage = AggregatePatternSearch.searchPage(
+                all, "=diamond", AggregateSearchMode.OUTPUTS, 0, 1,
+                id -> !id.equals("first"));
+        assertEquals(List.of(first), firstPage.recipes());
+        assertEquals(2, firstPage.totalMatches());
+        assertEquals(1, firstPage.selectedMatches());
+        assertEquals(0, firstPage.pageIndex());
+
+        var secondPage = AggregatePatternSearch.searchPage(
+                all, "=diamond", AggregateSearchMode.OUTPUTS, 1, 1,
+                id -> !id.equals("first"));
+        assertEquals(List.of(last), secondPage.recipes());
+        assertEquals(1, secondPage.pageIndex());
+
+        // When the user changes the query while on page 99, clamp to the
+        // last matching page without losing the total or enabled counts.
+        var clamped = AggregatePatternSearch.searchPage(
+                all, "=diamond", AggregateSearchMode.OUTPUTS, 99, 1,
+                id -> !id.equals("first"));
+        assertEquals(List.of(last), clamped.recipes());
+        assertEquals(1, clamped.pageIndex());
+        assertEquals(2, clamped.totalMatches());
+        assertEquals(1, clamped.selectedMatches());
+    }
+
+    @Test
+    void blankSearchPreservesFullCatalogOrderAndEmptyResults() {
+        var a = recipe("a", Items.OAK_LOG, Items.DIAMOND);
+        var b = recipe("b", Items.DIRT, Items.EMERALD);
+        var all = List.of(a, b);
+        var page = AggregatePatternSearch.searchPage(
+                all, " ", AggregateSearchMode.ALL, 1, 1, id -> true);
+        assertEquals(List.of(b), page.recipes());
+        assertEquals(2, page.totalMatches());
+        assertEquals(2, page.selectedMatches());
+
+        var none = AggregatePatternSearch.searchPage(
+                all, "=nether_star", AggregateSearchMode.OUTPUTS, 100, 1, id -> true);
+        assertEquals(List.of(), none.recipes());
+        assertEquals(0, none.totalMatches());
+        assertEquals(0, none.pageIndex());
+    }
+
 }
