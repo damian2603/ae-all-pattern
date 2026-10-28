@@ -28,6 +28,8 @@ import net.minecraft.world.item.ItemStack;
 @SuppressWarnings("deprecation")
 public final class AggregateGenerationService {
     private static final long UPLOAD_TIMEOUT_TICKS = 20L * 120L;
+    // A client must not pin unlimited concurrent large upload catalogs in server RAM.
+    private static final int MAX_CONCURRENT_UPLOADS_PER_PLAYER = 4;
     private static final Map<UploadKey, Upload> UPLOADS = new HashMap<>();
 
     private AggregateGenerationService() {
@@ -44,6 +46,12 @@ public final class AggregateGenerationService {
         }
 
         UploadKey key = new UploadKey(player.getUUID(), payload.uploadId());
+        if (!UPLOADS.containsKey(key) && UPLOADS.keySet().stream()
+                .filter(existing -> existing.playerId().equals(player.getUUID()))
+                .count() >= MAX_CONCURRENT_UPLOADS_PER_PLAYER) {
+            AeAllPattern.LOGGER.warn("Rejecting excess concurrent aggregate uploads from {}", player.getUUID());
+            return;
+        }
         Upload upload = UPLOADS.computeIfAbsent(key, ignored -> new Upload(payload, now));
         if (!upload.matches(payload) || !upload.add(payload, now)) {
             UPLOADS.remove(key);
@@ -151,6 +159,7 @@ public final class AggregateGenerationService {
         private final int pageCount;
         private final int totalRecipeCount;
         private final Map<Integer, List<AggregateRecipe>> pages = new HashMap<>();
+        private int bufferedRecipes;
         private long lastUpdateTick;
 
         private Upload(GenerateAggregatePayload first, long now) {
@@ -177,13 +186,19 @@ public final class AggregateGenerationService {
             if (previous != null && !previous.equals(page.recipes())) {
                 return false;
             }
-            pages.put(page.pageIndex(), page.recipes());
+            if (previous == null) {
+                if ((long) bufferedRecipes + page.recipes().size() > totalRecipeCount) {
+                    return false;
+                }
+                bufferedRecipes += page.recipes().size();
+                pages.put(page.pageIndex(), page.recipes());
+            }
             lastUpdateTick = now;
             return true;
         }
 
         private boolean complete() {
-            return pages.size() == pageCount;
+            return pages.size() == pageCount && bufferedRecipes == totalRecipeCount;
         }
 
         private List<AggregateRecipe> flatten() {
