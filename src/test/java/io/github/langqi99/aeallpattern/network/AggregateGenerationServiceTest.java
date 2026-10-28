@@ -8,16 +8,20 @@ import org.junit.jupiter.api.Test;
 
 class AggregateGenerationServiceTest {
     @Test
-    void emptyViewerStartupScanMustNotErasePersistedPackagedRecipes() {
-        assertTrue(AggregateGenerationService.shouldPreserveOnEmptyRefresh(true, 152, 0));
-        assertTrue(AggregateGenerationService.shouldPreserveOnEmptyRefresh(true, 1, 0));
+    void emptyViewerStartupScanMustNotErasePersistedRecipes() {
+        assertTrue(AggregateGenerationService.shouldPreserveOnIncompleteRefresh(
+                3, List.of("iron", "gold", "diamond"), List.of(), true));
+        assertTrue(AggregateGenerationService.shouldPreserveOnIncompleteRefresh(
+                1, List.of("only-recipe"), List.of(), true));
     }
 
     @Test
-    void validCatalogReplacementRemainsPermitted() {
-        assertFalse(AggregateGenerationService.shouldPreserveOnEmptyRefresh(true, 152, 150));
-        assertFalse(AggregateGenerationService.shouldPreserveOnEmptyRefresh(false, 152, 0));
-        assertFalse(AggregateGenerationService.shouldPreserveOnEmptyRefresh(true, 0, 0));
+    void equalOrLargerCompleteViewerScanMayUpdateCatalog() {
+        List<String> saved = List.of("iron", "gold", "diamond");
+        assertFalse(AggregateGenerationService.shouldPreserveOnIncompleteRefresh(
+                3, saved, saved, true));
+        assertFalse(AggregateGenerationService.shouldPreserveOnIncompleteRefresh(
+                3, saved, List.of("iron", "gold", "diamond", "new"), true));
     }
 
     @Test
