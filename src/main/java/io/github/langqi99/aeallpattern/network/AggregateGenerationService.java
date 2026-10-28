@@ -31,7 +31,9 @@ import net.minecraftforge.event.server.ServerStoppedEvent;
 public final class AggregateGenerationService {
     private static final long UPLOAD_TIMEOUT_TICKS = 20L * 120L;
     // A client must not pin unlimited concurrent large upload catalogs in server RAM.
-    private static final int MAX_CONCURRENT_UPLOADS_PER_PLAYER = 4;
+    private static final int MAX_CONCURRENT_UPLOADS_PER_PLAYER = 2;
+    private static final long MAX_BUFFERED_UPLOAD_BYTES = 32L * 1024 * 1024;
+    private static final int MAX_SERVER_PAGE_RECIPE_BYTES = 20_000;
     private static final Map<UploadKey, Upload> UPLOADS = new HashMap<>();
 
     private AggregateGenerationService() {
@@ -173,6 +175,7 @@ public final class AggregateGenerationService {
         private final int totalRecipeCount;
         private final Map<Integer, List<AggregateRecipe>> pages = new HashMap<>();
         private int bufferedRecipes;
+        private long bufferedBytes;
         private long lastUpdateTick;
 
         private Upload(GenerateAggregatePayload first, long now) {
@@ -203,7 +206,18 @@ public final class AggregateGenerationService {
                 if ((long) bufferedRecipes + page.recipes().size() > totalRecipeCount) {
                     return false;
                 }
+                long pageBytes = 0;
+                for (AggregateRecipe recipe : page.recipes()) {
+                    pageBytes += recipe.encodedSizeEstimate();
+                    if (pageBytes > MAX_SERVER_PAGE_RECIPE_BYTES) {
+                        return false;
+                    }
+                }
+                if (bufferedBytes + pageBytes > MAX_BUFFERED_UPLOAD_BYTES) {
+                    return false;
+                }
                 bufferedRecipes += page.recipes().size();
+                bufferedBytes += pageBytes;
                 pages.put(page.pageIndex(), page.recipes());
             }
             lastUpdateTick = now;
