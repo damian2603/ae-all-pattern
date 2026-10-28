@@ -52,12 +52,15 @@ public final class AggregatePatternSearch {
             return recipes.subList(0, Math.min(safeLimit, recipes.size()));
         }
         List<AggregateRecipe> matched = new ArrayList<>(Math.min(safeLimit, recipes.size()));
+        // Prepare query tokens once. Large catalogs may inspect hundreds of thousands
+        // of stack keys, so repeated lowercase/split for every stack is expensive.
+        String[] tokens = tokenize(searchText);
         for (AggregateRecipe recipe : recipes) {
             if (matched.size() >= safeLimit) {
                 break;
             }
-            if ((mode != AggregateSearchMode.OUTPUTS && matchesRecipe(recipe, searchText, false))
-                    || (mode != AggregateSearchMode.INPUTS && matchesRecipe(recipe, searchText, true))) {
+            if ((mode != AggregateSearchMode.OUTPUTS && matchesRecipeTokens(recipe, tokens, false))
+                    || (mode != AggregateSearchMode.INPUTS && matchesRecipeTokens(recipe, tokens, true))) {
                 matched.add(recipe);
             }
         }
@@ -66,12 +69,17 @@ public final class AggregatePatternSearch {
 
     /** True when any input (or output, per mode) stack of the recipe matches the query. */
     public static boolean matchesRecipe(AggregateRecipe recipe, String searchText, boolean searchOutputs) {
+        return matchesRecipeTokens(recipe, tokenize(searchText), searchOutputs);
+    }
+
+    private static boolean matchesRecipeTokens(
+            AggregateRecipe recipe, String[] tokens, boolean searchOutputs) {
         List<GenericStack> stacks = searchOutputs ? recipe.outputs() : recipe.inputs();
         if (stacks.isEmpty()) {
             return false;
         }
         for (GenericStack stack : stacks) {
-            if (stack != null && stack.what() != null && matchesStack(stack.what(), searchText)) {
+            if (stack != null && stack.what() != null && matchesStackTokens(stack.what(), tokens)) {
                 return true;
             }
         }
@@ -79,7 +87,14 @@ public final class AggregatePatternSearch {
     }
 
     public static boolean matchesStack(AEKey key, String query) {
-        String[] tokens = query.toLowerCase(Locale.ROOT).split("\\s+");
+        return matchesStackTokens(key, tokenize(query));
+    }
+
+    private static String[] tokenize(String query) {
+        return query.toLowerCase(Locale.ROOT).split("\\s+");
+    }
+
+    private static boolean matchesStackTokens(AEKey key, String[] tokens) {
         for (String token : tokens) {
             if (token.isEmpty()) {
                 continue;
