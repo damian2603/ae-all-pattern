@@ -73,8 +73,8 @@ for attempt in range(0 if args.reuse_installation else 3):
 fml_config_dir = root / 'config'
 fml_config_dir.mkdir(parents=True, exist_ok=True)
 (fml_config_dir / 'fml.toml').write_text(
-    '# Headless CI smoke test only\\n'
-    'earlyWindowControl = false\\n',
+    '# Headless CI smoke test only\n'
+    'earlyWindowControl = false\n',
     encoding='utf-8')
 print('Configured Forge early window off for headless CI', flush=True)
 
