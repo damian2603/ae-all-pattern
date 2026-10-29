@@ -2483,6 +2483,13 @@ public final class CoreGameTests {
     private static IPatternDetails assertAggregatePackageWorkflow(
             GameTestHelper helper, BlockEntity provider, IManagedGridNode node, ItemStack output)
             throws ReflectiveOperationException {
+        // This helper verifies PackagedAuto's package/unpackage path, not its separate
+        // Direct shortcut. Select the workflow explicitly now that aggregate patterns
+        // correctly respect the provider's configured mode flags.
+        provider.getClass().getField("provideDirect").setBoolean(provider, false);
+        provider.getClass().getField("providePackaging").setBoolean(provider, true);
+        provider.getClass().getField("provideUnpackaging").setBoolean(provider, true);
+        provider.getClass().getMethod("postPatternChange").invoke(provider);
         List<?> available = (List<?>) provider.getClass().getMethod("getAvailablePatterns").invoke(provider);
         List<IPatternDetails> packaging = available.stream()
                 .filter(pattern -> pattern.getClass().getName().endsWith("PackageCraftingPatternDetails"))
