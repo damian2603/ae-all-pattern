@@ -175,4 +175,53 @@ public final class PackagedAggregateRecoveryGameTests {
             }
         });
     }
+
+    @GameTest(batch = "provider_compat", template = "empty", timeoutTicks = 160)
+    public static void packagedProviderAggregateRespectsDirectPackagingAndUnpackagingModes(GameTestHelper helper) {
+        var block = BuiltInRegistries.BLOCK.getOptional(id("packagedauto:packaging_provider"));
+        if (block.isEmpty()) { helper.succeed(); return; }
+        var pos = new BlockPos(1, 1, 1);
+        helper.setBlock(pos, block.get());
+        helper.setBlock(pos.east(), appeng.core.definitions.AEBlocks.CREATIVE_ENERGY_CELL.block());
+        helper.runAfterDelay(12, () -> {
+            try {
+                BlockEntity entity = helper.getLevel().getBlockEntity(helper.absolutePos(pos));
+                helper.assertTrue(entity instanceof ICraftingProvider, "Missing PackagedAuto ME provider");
+                Object handler = entity.getClass().getMethod("getItemHandler").invoke(entity);
+                ((IItemHandlerModifiable) handler).setStackInSlot(0, aggregate(helper, false));
+                ICraftingProvider provider = (ICraftingProvider) entity;
+
+                assertMode(helper, entity, provider, true, false, false,
+                        "DirectCraftingPatternDetails", "Direct mode must publish direct patterns only");
+                assertMode(helper, entity, provider, false, true, false,
+                        "PackageCraftingPatternDetails", "Packaging mode must publish package patterns only");
+                assertMode(helper, entity, provider, false, false, true,
+                        "RecipeCraftingPatternDetails", "Unpackaging mode must publish recipe patterns only");
+                helper.succeed();
+            } catch (ReflectiveOperationException error) {
+                throw new IllegalStateException(error);
+            }
+        });
+    }
+
+    private static void assertMode(
+            GameTestHelper helper,
+            BlockEntity entity,
+            ICraftingProvider provider,
+            boolean direct,
+            boolean packaging,
+            boolean unpackaging,
+            String expectedType,
+            String message) throws ReflectiveOperationException {
+        entity.getClass().getField("provideDirect").setBoolean(entity, direct);
+        entity.getClass().getField("providePackaging").setBoolean(entity, packaging);
+        entity.getClass().getField("provideUnpackaging").setBoolean(entity, unpackaging);
+        entity.getClass().getMethod("postPatternChange").invoke(entity);
+
+        List<?> patterns = provider.getAvailablePatterns();
+        helper.assertTrue(!patterns.isEmpty(), message + ": no patterns were published");
+        helper.assertTrue(patterns.stream().allMatch(
+                        pattern -> pattern.getClass().getSimpleName().equals(expectedType)),
+                message + ": got " + patterns.stream().map(pattern -> pattern.getClass().getSimpleName()).toList());
+    }
 }
