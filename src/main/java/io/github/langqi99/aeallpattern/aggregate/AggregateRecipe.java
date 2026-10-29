@@ -35,6 +35,7 @@ public record AggregateRecipe(
     // This is a transient optimization, not a second copy of every catalog in memory.
     private static final long MAX_CACHED_WIRE_BYTES = 32L * 1024 * 1024;
     private static final int MAX_CACHED_WIRE_RECIPES = 32_768;
+    private static final int MAX_CACHEABLE_RECIPE_BYTES = 20_000;
     private static final ReferenceQueue<AggregateRecipe> ENCODED_BYTES_QUEUE = new ReferenceQueue<>();
     private static final Map<IdentityWeakReference, CachedWireBytes> ENCODED_BYTES =
             new LinkedHashMap<>(128, 0.75F, true);
@@ -234,12 +235,7 @@ public record AggregateRecipe(
      */
     public int encodedSizeEstimate() {
         CachedWireBytes cached = peekEncodedBytes(this);
-        if (cached != null) {
-            return cached.bytes().length;
-        }
-        byte[] encoded = encodeToBytes(this);
-        rememberEncodedBytes(this, encoded, true);
-        return encoded.length;
+        return cached != null ? cached.bytes().length : measureWireSize(this, true);
     }
 
     /**
@@ -248,16 +244,22 @@ public record AggregateRecipe(
      */
     public int consumeEncodedSize() {
         CachedWireBytes cached = takeEncodedBytes(this);
-        return cached != null ? cached.bytes().length : encodeToBytes(this).length;
+        return cached != null ? cached.bytes().length : measureWireSize(this, false);
     }
 
-    private static byte[] encodeToBytes(AggregateRecipe recipe) {
+    private static int measureWireSize(AggregateRecipe recipe, boolean cacheForEncoding) {
         FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer(256));
         try {
             encodeFields(buffer, recipe);
-            byte[] encoded = new byte[buffer.readableBytes()];
-            buffer.getBytes(buffer.readerIndex(), encoded);
-            return encoded;
+            int size = buffer.readableBytes();
+            // Do not copy huge/oversized NBT just to cache it. Such a recipe cannot fit in an
+            // upload page, so retaining its encoded bytes offers no useful benefit.
+            if (cacheForEncoding && size <= MAX_CACHEABLE_RECIPE_BYTES) {
+                byte[] encoded = new byte[size];
+                buffer.getBytes(buffer.readerIndex(), encoded);
+                rememberEncodedBytes(recipe, encoded, true);
+            }
+            return size;
         } finally {
             buffer.release();
         }
@@ -284,7 +286,7 @@ public record AggregateRecipe(
         if (previous != null) {
             cachedWireBytes -= previous.bytes().length;
         }
-        if (encoded.length > MAX_CACHED_WIRE_BYTES) {
+        if (encoded.length > MAX_CACHED_WIRE_BYTES || encoded.length > MAX_CACHEABLE_RECIPE_BYTES) {
             return;
         }
         ENCODED_BYTES.put(

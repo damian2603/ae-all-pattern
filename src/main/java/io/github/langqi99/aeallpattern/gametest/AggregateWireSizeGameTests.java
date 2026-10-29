@@ -54,7 +54,7 @@ public final class AggregateWireSizeGameTests {
             helper.assertTrue(actual > metadataBytes,
                     "Recipe upload did not account for large ItemStack NBT");
 
-            // The next network encode must reuse the measured bytes, not serialize the NBT again.
+            // Encoding must remain byte-identical whether a size-cache entry is applicable or not.
             FriendlyByteBuf cachedEncoding = new FriendlyByteBuf(Unpooled.buffer());
             try {
                 AggregateRecipe.STREAM_CODEC.encode(cachedEncoding, recipe);
