@@ -32,7 +32,7 @@ public final class AggregateUploadAuthorityGameTests {
     public static void nonOperatorCannotReplaceExistingSharedCatalog(GameTestHelper helper) {
         var level = helper.getLevel();
         var server = level.getServer();
-        ServerPlayer player = helper.makeMockPlayer();
+        ServerPlayer player = (ServerPlayer) helper.makeMockPlayer();
         BlockPos playerPos = helper.absolutePos(new BlockPos(1, 1, 1));
         player.setPos(playerPos.getX() + 0.5, playerPos.getY(), playerPos.getZ() + 0.5);
         var machine = new ResourceLocation("aeallpattern", "authority_" + UUID.randomUUID().toString().replace("-", ""));
