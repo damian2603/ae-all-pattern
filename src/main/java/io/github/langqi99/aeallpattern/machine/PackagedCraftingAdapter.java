@@ -494,7 +494,9 @@ final class PackagedCraftingAdapter implements MachineAdapter {
     }
 
     static boolean supportsTier(int machineTier, int recipeTier) {
-        return recipeTier <= machineTier;
+        // Tiered crafters expose only recipes for their exact tier. Higher-tier
+        // crafters must not inherit lower-tier recipes from the shared recipe type.
+        return recipeTier == machineTier;
     }
 
     private static Map<ResourceLocation, Spec> machineSpecs() {
