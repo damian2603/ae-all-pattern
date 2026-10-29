@@ -7,7 +7,8 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import io.github.langqi99.aeallpattern.recipe.RecipeSnapshot;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
-import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -31,10 +32,13 @@ public record AggregateRecipe(
     public static final int MAX_OUTPUTS = 27;
     public static final int MAX_TOTAL_INPUT_ALTERNATIVES = Integer.MAX_VALUE;
 
-    // Exact wire bytes are cached by object identity while a recipe is being sized/uploaded.
-    // Weak keys prevent the cache from retaining recipes; upload encode/size paths consume entries.
+    // This is a transient optimization, not a second copy of every catalog in memory.
+    private static final long MAX_CACHED_WIRE_BYTES = 32L * 1024 * 1024;
+    private static final int MAX_CACHED_WIRE_RECIPES = 32_768;
     private static final ReferenceQueue<AggregateRecipe> ENCODED_BYTES_QUEUE = new ReferenceQueue<>();
-    private static final Map<IdentityWeakReference, byte[]> ENCODED_BYTES = new HashMap<>();
+    private static final Map<IdentityWeakReference, CachedWireBytes> ENCODED_BYTES =
+            new LinkedHashMap<>(128, 0.75F, true);
+    private static long cachedWireBytes;
     private static final Codec<List<GenericStack>> INPUTS_CODEC = GenericStackCodec.CODEC.listOf()
             .flatXmap(inputs -> validateStacks(inputs, MAX_INPUTS, "inputs"), DataResult::success);
     private static final Codec<List<GenericStack>> OUTPUTS_CODEC = GenericStackCodec.CODEC.listOf()
@@ -172,10 +176,10 @@ public record AggregateRecipe(
     }
 
     private static void encode(FriendlyByteBuf buffer, AggregateRecipe recipe) {
-        byte[] cached = takeEncodedBytes(recipe);
-        if (cached != null) {
-            // The cached bytes were produced by the same codec and include all component/NBT data.
-            buffer.writeBytes(cached);
+        CachedWireBytes cached = takeEncodedBytes(recipe);
+        if (cached != null && cached.reusableForEncoding()) {
+            // These bytes were produced by this codec and include all component/NBT data.
+            buffer.writeBytes(cached.bytes());
             return;
         }
         encodeFields(buffer, recipe);
@@ -212,7 +216,7 @@ public record AggregateRecipe(
         int wireLength = buffer.readerIndex() - wireStart;
         byte[] wireBytes = new byte[wireLength];
         buffer.getBytes(wireStart, wireBytes);
-        rememberEncodedBytes(recipe, wireBytes);
+        rememberEncodedBytes(recipe, wireBytes, false);
         return recipe;
     }
 
@@ -229,12 +233,12 @@ public record AggregateRecipe(
      * causing upload pages to exceed Forge's packet limit.
      */
     public int encodedSizeEstimate() {
-        byte[] cached = peekEncodedBytes(this);
+        CachedWireBytes cached = peekEncodedBytes(this);
         if (cached != null) {
-            return cached.length;
+            return cached.bytes().length;
         }
         byte[] encoded = encodeToBytes(this);
-        rememberEncodedBytes(this, encoded);
+        rememberEncodedBytes(this, encoded, true);
         return encoded.length;
     }
 
@@ -243,8 +247,8 @@ public record AggregateRecipe(
      * original bytes, so server upload validation does not serialize decoded NBT a second time.
      */
     public int consumeEncodedSize() {
-        byte[] cached = takeEncodedBytes(this);
-        return cached != null ? cached.length : encodeToBytes(this).length;
+        CachedWireBytes cached = takeEncodedBytes(this);
+        return cached != null ? cached.bytes().length : encodeToBytes(this).length;
     }
 
     private static byte[] encodeToBytes(AggregateRecipe recipe) {
@@ -259,26 +263,54 @@ public record AggregateRecipe(
         }
     }
 
-    private static synchronized byte[] peekEncodedBytes(AggregateRecipe recipe) {
+    private static synchronized CachedWireBytes peekEncodedBytes(AggregateRecipe recipe) {
         expungeStaleEncodedBytes();
         return ENCODED_BYTES.get(new IdentityWeakReference(recipe));
     }
 
-    private static synchronized byte[] takeEncodedBytes(AggregateRecipe recipe) {
+    private static synchronized CachedWireBytes takeEncodedBytes(AggregateRecipe recipe) {
         expungeStaleEncodedBytes();
-        return ENCODED_BYTES.remove(new IdentityWeakReference(recipe));
+        CachedWireBytes removed = ENCODED_BYTES.remove(new IdentityWeakReference(recipe));
+        if (removed != null) {
+            cachedWireBytes -= removed.bytes().length;
+        }
+        return removed;
     }
 
-    private static synchronized void rememberEncodedBytes(AggregateRecipe recipe, byte[] encoded) {
+    private static synchronized void rememberEncodedBytes(
+            AggregateRecipe recipe, byte[] encoded, boolean reusableForEncoding) {
         expungeStaleEncodedBytes();
-        ENCODED_BYTES.put(new IdentityWeakReference(recipe, ENCODED_BYTES_QUEUE), encoded);
+        CachedWireBytes previous = ENCODED_BYTES.remove(new IdentityWeakReference(recipe));
+        if (previous != null) {
+            cachedWireBytes -= previous.bytes().length;
+        }
+        if (encoded.length > MAX_CACHED_WIRE_BYTES) {
+            return;
+        }
+        ENCODED_BYTES.put(
+                new IdentityWeakReference(recipe, ENCODED_BYTES_QUEUE),
+                new CachedWireBytes(encoded, reusableForEncoding));
+        cachedWireBytes += encoded.length;
+        Iterator<Map.Entry<IdentityWeakReference, CachedWireBytes>> iterator =
+                ENCODED_BYTES.entrySet().iterator();
+        while (cachedWireBytes > MAX_CACHED_WIRE_BYTES || ENCODED_BYTES.size() > MAX_CACHED_WIRE_RECIPES) {
+            Map.Entry<IdentityWeakReference, CachedWireBytes> eldest = iterator.next();
+            cachedWireBytes -= eldest.getValue().bytes().length;
+            iterator.remove();
+        }
     }
 
-    private static void expungeStaleEncodedBytes() {
+    private static synchronized void expungeStaleEncodedBytes() {
         IdentityWeakReference reference;
         while ((reference = (IdentityWeakReference) ENCODED_BYTES_QUEUE.poll()) != null) {
-            ENCODED_BYTES.remove(reference);
+            CachedWireBytes removed = ENCODED_BYTES.remove(reference);
+            if (removed != null) {
+                cachedWireBytes -= removed.bytes().length;
+            }
         }
+    }
+
+    private record CachedWireBytes(byte[] bytes, boolean reusableForEncoding) {
     }
 
     private static final class IdentityWeakReference extends WeakReference<AggregateRecipe> {
