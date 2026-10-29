@@ -6,6 +6,7 @@ import io.github.langqi99.aeallpattern.AeAllPattern;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternKind;
 import io.github.langqi99.aeallpattern.aggregate.AggregateRecipe;
 import io.netty.buffer.Unpooled;
+import java.util.Arrays;
 import java.util.List;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -46,12 +47,28 @@ public final class AggregateWireSizeGameTests {
         try {
             AggregateRecipe.STREAM_CODEC.encode(buffer, recipe);
             int actual = buffer.readableBytes();
+            byte[] originalWireBytes = new byte[actual];
+            buffer.getBytes(buffer.readerIndex(), originalWireBytes);
             helper.assertTrue(recipe.encodedSizeEstimate() == actual,
                     "Recipe size differs from actual AE2 wire bytes: " + actual);
             helper.assertTrue(actual > metadataBytes,
                     "Recipe upload did not account for large ItemStack NBT");
 
+            // The next network encode must reuse the measured bytes, not serialize the NBT again.
+            FriendlyByteBuf cachedEncoding = new FriendlyByteBuf(Unpooled.buffer());
+            try {
+                AggregateRecipe.STREAM_CODEC.encode(cachedEncoding, recipe);
+                byte[] reusedWireBytes = new byte[cachedEncoding.readableBytes()];
+                cachedEncoding.getBytes(cachedEncoding.readerIndex(), reusedWireBytes);
+                helper.assertTrue(Arrays.equals(originalWireBytes, reusedWireBytes),
+                        "Cached recipe bytes differed from actual wire encoding");
+            } finally {
+                cachedEncoding.release();
+            }
+
             AggregateRecipe restored = AggregateRecipe.STREAM_CODEC.decode(buffer);
+            helper.assertTrue(restored.consumeEncodedSize() == actual,
+                    "Decoder did not preserve the exact number of recipe wire bytes");
             helper.assertTrue(restored.outputs().size() == 1
                             && restored.outputs().get(0).amount() == recipe.outputs().get(0).amount()
                             && restored.outputs().get(0).what().equals(recipe.outputs().get(0).what()),

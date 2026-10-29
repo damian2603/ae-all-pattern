@@ -239,7 +239,7 @@ public final class AggregateGenerationService {
                 }
                 long pageBytes = 0;
                 for (AggregateRecipe recipe : page.recipes()) {
-                    pageBytes += recipe.encodedSizeEstimate();
+                    pageBytes += recipe.consumeEncodedSize();
                     if (pageBytes > MAX_SERVER_PAGE_RECIPE_BYTES) {
                         return false;
                     }

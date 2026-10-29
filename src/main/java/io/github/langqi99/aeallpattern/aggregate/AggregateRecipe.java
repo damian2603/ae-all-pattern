@@ -5,7 +5,11 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import io.github.langqi99.aeallpattern.recipe.RecipeSnapshot;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import io.netty.buffer.Unpooled;
 
@@ -26,6 +30,11 @@ public record AggregateRecipe(
     public static final int MAX_INPUTS = 81;
     public static final int MAX_OUTPUTS = 27;
     public static final int MAX_TOTAL_INPUT_ALTERNATIVES = Integer.MAX_VALUE;
+
+    // Exact wire bytes are cached by object identity while a recipe is being sized/uploaded.
+    // Weak keys prevent the cache from retaining recipes; upload encode/size paths consume entries.
+    private static final ReferenceQueue<AggregateRecipe> ENCODED_BYTES_QUEUE = new ReferenceQueue<>();
+    private static final Map<IdentityWeakReference, byte[]> ENCODED_BYTES = new HashMap<>();
     private static final Codec<List<GenericStack>> INPUTS_CODEC = GenericStackCodec.CODEC.listOf()
             .flatXmap(inputs -> validateStacks(inputs, MAX_INPUTS, "inputs"), DataResult::success);
     private static final Codec<List<GenericStack>> OUTPUTS_CODEC = GenericStackCodec.CODEC.listOf()
@@ -163,6 +172,16 @@ public record AggregateRecipe(
     }
 
     private static void encode(FriendlyByteBuf buffer, AggregateRecipe recipe) {
+        byte[] cached = takeEncodedBytes(recipe);
+        if (cached != null) {
+            // The cached bytes were produced by the same codec and include all component/NBT data.
+            buffer.writeBytes(cached);
+            return;
+        }
+        encodeFields(buffer, recipe);
+    }
+
+    private static void encodeFields(FriendlyByteBuf buffer, AggregateRecipe recipe) {
         buffer.writeUtf(recipe.patternId(), 160);
         buffer.writeResourceLocation(recipe.recipeId());
         buffer.writeEnum(recipe.kind());
@@ -175,6 +194,7 @@ public record AggregateRecipe(
     }
 
     private static AggregateRecipe decode(FriendlyByteBuf buffer) {
+        int wireStart = buffer.readerIndex();
         String patternId = buffer.readUtf(160);
         ResourceLocation recipeId = buffer.readResourceLocation();
         AggregatePatternKind kind = buffer.readEnum(AggregatePatternKind.class);
@@ -185,10 +205,15 @@ public record AggregateRecipe(
         List<GenericStack> outputs = java.util.stream.IntStream.range(0, outputCount)
                 .mapToObj(index -> java.util.Objects.requireNonNull(GenericStack.readBuffer(buffer))).toList();
         int probabilisticOutputMask = buffer.readVarInt();
-        return new AggregateRecipe(
+        AggregateRecipe recipe = new AggregateRecipe(
                 patternId, recipeId, kind,
                 inputSlots.stream().map(AggregateInputSlot::primary).toList(),
                 inputSlots, outputs, probabilisticOutputMask, buffer.readVarInt());
+        int wireLength = buffer.readerIndex() - wireStart;
+        byte[] wireBytes = new byte[wireLength];
+        buffer.getBytes(wireStart, wireBytes);
+        rememberEncodedBytes(recipe, wireBytes);
+        return recipe;
     }
 
     private static int checkedCount(int count, int maximum, String name) {
@@ -204,12 +229,86 @@ public record AggregateRecipe(
      * causing upload pages to exceed Forge's packet limit.
      */
     public int encodedSizeEstimate() {
+        byte[] cached = peekEncodedBytes(this);
+        if (cached != null) {
+            return cached.length;
+        }
+        byte[] encoded = encodeToBytes(this);
+        rememberEncodedBytes(this, encoded);
+        return encoded.length;
+    }
+
+    /**
+     * Returns the exact wire size and releases any cached bytes. Network decoders cache the
+     * original bytes, so server upload validation does not serialize decoded NBT a second time.
+     */
+    public int consumeEncodedSize() {
+        byte[] cached = takeEncodedBytes(this);
+        return cached != null ? cached.length : encodeToBytes(this).length;
+    }
+
+    private static byte[] encodeToBytes(AggregateRecipe recipe) {
         FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer(256));
         try {
-            STREAM_CODEC.encode(buffer, this);
-            return buffer.readableBytes();
+            encodeFields(buffer, recipe);
+            byte[] encoded = new byte[buffer.readableBytes()];
+            buffer.getBytes(buffer.readerIndex(), encoded);
+            return encoded;
         } finally {
             buffer.release();
+        }
+    }
+
+    private static synchronized byte[] peekEncodedBytes(AggregateRecipe recipe) {
+        expungeStaleEncodedBytes();
+        return ENCODED_BYTES.get(new IdentityWeakReference(recipe));
+    }
+
+    private static synchronized byte[] takeEncodedBytes(AggregateRecipe recipe) {
+        expungeStaleEncodedBytes();
+        return ENCODED_BYTES.remove(new IdentityWeakReference(recipe));
+    }
+
+    private static synchronized void rememberEncodedBytes(AggregateRecipe recipe, byte[] encoded) {
+        expungeStaleEncodedBytes();
+        ENCODED_BYTES.put(new IdentityWeakReference(recipe, ENCODED_BYTES_QUEUE), encoded);
+    }
+
+    private static void expungeStaleEncodedBytes() {
+        IdentityWeakReference reference;
+        while ((reference = (IdentityWeakReference) ENCODED_BYTES_QUEUE.poll()) != null) {
+            ENCODED_BYTES.remove(reference);
+        }
+    }
+
+    private static final class IdentityWeakReference extends WeakReference<AggregateRecipe> {
+        private final int identityHash;
+
+        private IdentityWeakReference(AggregateRecipe recipe) {
+            super(recipe);
+            identityHash = System.identityHashCode(recipe);
+        }
+
+        private IdentityWeakReference(AggregateRecipe recipe, ReferenceQueue<AggregateRecipe> queue) {
+            super(recipe, queue);
+            identityHash = System.identityHashCode(recipe);
+        }
+
+        @Override
+        public int hashCode() {
+            return identityHash;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (!(other instanceof IdentityWeakReference reference)) {
+                return false;
+            }
+            AggregateRecipe recipe = get();
+            return recipe != null && recipe == reference.get();
         }
     }
 }
