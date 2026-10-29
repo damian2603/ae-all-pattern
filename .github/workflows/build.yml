@@ -78,6 +78,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
     strategy:
       fail-fast: false
       matrix:
@@ -104,6 +107,21 @@ jobs:
       - run: pip install minecraft-launcher-lib==8.0
       - name: Launch packaged mod in production Forge
         run: xvfb-run --auto-servernum python tools/production_client_smoke.py --jar release-jars/aeallpattern-*.jar --directory production-client ${{ matrix.arguments }}
+      - name: Surface production client failure on the draft PR
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          {
+            echo "### Production client failure: ${{ matrix.name }}"
+            echo '```'
+            tail -160 production-client/production-console.log || true
+            echo '--- latest.log ---'
+            tail -120 production-client/logs/latest.log || true
+            echo '```'
+          } > production-failure-comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file production-failure-comment.md
       - name: Upload production logs
         if: always()
         uses: actions/upload-artifact@v4
