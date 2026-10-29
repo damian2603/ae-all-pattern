@@ -66,6 +66,18 @@ for attempt in range(0 if args.reuse_installation else 3):
             raise
         time.sleep(2)
 
+# The fresh headless CI client must not try to create Forge's separate early
+# GLFW/OpenGL progress window. That window can time out under Xvfb before the
+# regular Minecraft client or its smoke-test watchdog starts. This is isolated
+# to this disposable test game directory; it does not change modpack defaults.
+fml_config_dir = root / 'config'
+fml_config_dir.mkdir(parents=True, exist_ok=True)
+(fml_config_dir / 'fml.toml').write_text(
+    '# Headless CI smoke test only\\n'
+    'earlyWindowControl = false\\n',
+    encoding='utf-8')
+print('Configured Forge early window off for headless CI', flush=True)
+
 options = {
     'username': 'ProductionTest',
     'uuid': '00000000000000000000000000000001',

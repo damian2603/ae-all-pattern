@@ -73,7 +73,9 @@ jobs:
           path: release-jars
       - run: pip install minecraft-launcher-lib==8.0
       - name: Launch packaged mod in production Forge
-        run: xvfb-run --auto-servernum python tools/production_client_smoke.py --jar release-jars/aeallpattern-*.jar --directory production-client ${{ matrix.arguments }}
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24 +extension GLX" python tools/production_client_smoke.py --jar release-jars/aeallpattern-*.jar --directory production-client ${{ matrix.arguments }}
       - name: Upload production logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -199,12 +201,15 @@ jobs:
       # in-game smoke-test exit hook cannot fire in a fresh CI checkout.
       - name: Preconfigure fresh client to open the title screen
         run: |
-          mkdir -p run
+          mkdir -p run/config
           printf 'onboardAccessibility:false\n' > run/options.txt
+          # CI only: skip Forge's separate early GLFW/OpenGL splash window.
+          printf '# Headless CI smoke test only\nearlyWindowControl = false\n' > run/config/fml.toml
       - name: Start the real client and exit after the title screen
         run: |
+          export LIBGL_ALWAYS_SOFTWARE=1
           timeout --signal=TERM --kill-after=15s 12m \
-            xvfb-run --auto-servernum ./gradlew runClient ${{ matrix.properties }} --stacktrace
+            xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24 +extension GLX" ./gradlew runClient ${{ matrix.properties }} --stacktrace
       - name: Verify smoke-test completion marker
         run: grep -F 'CLIENT_SMOKE_TEST_PASSED' run/logs/latest.log
       - name: Upload client failure logs
