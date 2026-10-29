@@ -84,8 +84,14 @@ public final class AggregateProviderExpansion {
             // Use the real expansion filters/options instead of only the saved recipe count.
             // A catalog whose children are all probabilistic, durability-consuming, or filtered
             // by the item's options is legitimately empty and must not trigger auto-repair.
-            if (ref != null && AggregatePatternExpander.expandFirst(stack, serverLevel) != null) {
-                return true;
+            // A single bad recipe must not make the whole provider look unindexed either.
+            try {
+                if (ref != null && AggregatePatternExpander.expandFirst(stack, serverLevel) != null) {
+                    return true;
+                }
+            } catch (RuntimeException ignored) {
+                // Treat an unreadable/expansion-failing catalog as not currently expecting
+                // children; the normal provider refresh path still handles real index loss.
             }
         }
         return false;

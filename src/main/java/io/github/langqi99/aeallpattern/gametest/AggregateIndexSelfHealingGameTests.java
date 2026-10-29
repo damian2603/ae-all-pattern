@@ -106,7 +106,7 @@ public final class AggregateIndexSelfHealingGameTests {
                 var server = helper.getLevel().getServer();
                 var recipe = new AggregateRecipe("filtered-empty",
                         new ResourceLocation("minecraft", "oak_planks"), AggregatePatternKind.CRAFTING,
-                        List.of(new GenericStack(AEItemKey.of(Items.OAK_LOG), 1)),
+                        List.of(new GenericStack(AEItemKey.of(Items.OAK_LOG), 1)), List.of(),
                         List.of(new GenericStack(AEItemKey.of(Items.OAK_PLANKS), 4)), 1, 1);
                 var ref = AggregatePatternLibrary.get(server).put(server,
                         new ResourceLocation("aeallpattern", "filtered_empty_" + System.nanoTime()),

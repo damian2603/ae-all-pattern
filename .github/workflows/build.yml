@@ -26,7 +26,18 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
       - name: Compile, unit test, and verify release contents
-        run: ./gradlew clean check build --stacktrace
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew clean check build --stacktrace --console=plain 2>&1 | tee build-ci.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo '## Build failure (last 200 lines)' >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -200 build-ci.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
       - name: Upload release JAR
         uses: actions/upload-artifact@v4
         with:
