@@ -17,8 +17,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.common.util.FakePlayer;
 import net.minecraft.world.item.Items;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -34,10 +34,11 @@ public final class AggregateUploadAuthorityGameTests {
     public static void nonOperatorCannotReplaceExistingSharedCatalog(GameTestHelper helper) {
         var level = helper.getLevel();
         var server = level.getServer();
-        // makeMockPlayer() returns an anonymous Player, not a ServerPlayer. The upload
-        // handler needs a real ServerPlayer, but deliberately no network connection.
-        ServerPlayer player = new ServerPlayer(server, level,
-                new GameProfile(UUID.randomUUID(), "authority_test"), ClientInformation.createDefault());
+        // makeMockPlayer() returns an anonymous Player, not a ServerPlayer. Forge's
+        // FakePlayer is a real ServerPlayer; clear its connection so rejection does not
+        // try to send a packet to a test-only player.
+        ServerPlayer player = new FakePlayer(level, new GameProfile(UUID.randomUUID(), "authority_test"));
+        player.connection = null;
         BlockPos playerPos = helper.absolutePos(new BlockPos(1, 1, 1));
         player.setPos(playerPos.getX() + 0.5, playerPos.getY(), playerPos.getZ() + 0.5);
         var machine = new ResourceLocation("aeallpattern", "authority_" + UUID.randomUUID().toString().replace("-", ""));
