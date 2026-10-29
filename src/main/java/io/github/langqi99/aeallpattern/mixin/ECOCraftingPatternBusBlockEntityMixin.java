@@ -41,7 +41,10 @@ public abstract class ECOCraftingPatternBusBlockEntityMixin {
             AggregateProviderRefreshService.track(
                     serverLevel.getServer(), this,
                     owner -> ((ECOCraftingPatternBusBlockEntityMixin) owner)
-                            .aeallpattern$rerunUpdatePatternDetails());
+                            .aeallpattern$rerunUpdatePatternDetails(),
+                    null,
+                    (owner, libraryId) -> io.github.langqi99.aeallpattern.aggregate.AggregateProviderExpansion.containsLibrary(
+                            ((ECOCraftingPatternBusBlockEntityMixin) owner).inventory, libraryId));
         }
         patternDetails.removeIf(io.github.langqi99.aeallpattern.aggregate.AggregatePatternMarkerDetails.class::isInstance);
         boolean cold = false;

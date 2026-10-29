@@ -60,8 +60,9 @@ public final class AggregateProviderExpansion {
     }
 
     /**
-     * Cheap metadata-only check for a provider that should have at least one
-     * published aggregate child. Fully disabled catalogs are legitimately empty.
+     * Checks whether a provider should have at least one published aggregate child.
+     * Fully disabled catalogs and catalogs whose children are all filtered out by the
+     * item's options are legitimately empty and must not trigger auto-repair.
      */
     public static boolean expectsPublishedChildren(InternalInventory inventory, Level level) {
         if (inventory == null || !(level instanceof ServerLevel serverLevel)) {
@@ -80,8 +81,10 @@ public final class AggregateProviderExpansion {
             if (ref != null && AggregatePatternExpander.isPending(serverLevel.getServer(), ref.libraryId())) {
                 continue;
             }
-            if (ref != null && AggregatePatternLibrary.get(serverLevel.getServer())
-                    .find(ref.libraryId()).map(entry -> entry.recipeCount() > 0).orElse(false)) {
+            // Use the real expansion filters/options instead of only the saved recipe count.
+            // A catalog whose children are all probabilistic, durability-consuming, or filtered
+            // by the item's options is legitimately empty and must not trigger auto-repair.
+            if (ref != null && AggregatePatternExpander.expandFirst(stack, serverLevel) != null) {
                 return true;
             }
         }

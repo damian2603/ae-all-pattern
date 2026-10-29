@@ -16,7 +16,7 @@ import net.minecraftforge.network.simple.SimpleChannel;
 
 /** Forge 1.20.1 SimpleChannel transport for the same bounded payloads as main. */
 public final class BindingNetwork {
-    private static final String PROTOCOL = "3";
+    private static final String PROTOCOL = "4";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(AeAllPattern.MOD_ID, "main"),
             () -> PROTOCOL,
@@ -50,6 +50,9 @@ public final class BindingNetwork {
                     }
                 });
         register(AggregateSearchResultPayload.class, AggregateSearchResultPayload.STREAM_CODEC,
+                NetworkDirection.PLAY_TO_CLIENT, (payload, context) -> client(() ->
+                        ClientNetworkHandlers.handle(payload)));
+        register(AggregateUploadRejectedPayload.class, AggregateUploadRejectedPayload.STREAM_CODEC,
                 NetworkDirection.PLAY_TO_CLIENT, (payload, context) -> client(() ->
                         ClientNetworkHandlers.handle(payload)));
     }

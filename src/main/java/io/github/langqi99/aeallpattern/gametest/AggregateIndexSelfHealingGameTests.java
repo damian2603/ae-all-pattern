@@ -83,6 +83,56 @@ public final class AggregateIndexSelfHealingGameTests {
         });
     }
 
+    @GameTest(batch = "provider_compat", template = "empty", timeoutTicks = 240)
+    public static void fullyFilteredCatalogIsHealthyWithoutRepairLoop(GameTestHelper helper) {
+        var blockId = new ResourceLocation("ae2", "pattern_provider");
+        var block = BuiltInRegistries.BLOCK.getOptional(blockId);
+        if (block.isEmpty()) {
+            helper.succeed();
+            return;
+        }
+        BlockPos pos = new BlockPos(1, 1, 1);
+        helper.setBlock(pos, block.orElseThrow());
+        helper.setBlock(pos.east(), appeng.core.definitions.AEBlocks.CREATIVE_ENERGY_CELL.block());
+        helper.runAfterDelay(20, () -> {
+            try {
+                var entity = helper.getLevel().getBlockEntity(helper.absolutePos(pos));
+                helper.assertTrue(entity != null, "Pattern Provider missing");
+                Object logic = entity.getClass().getMethod("getLogic").invoke(entity);
+                var inventory = (InternalInventory) logic.getClass().getMethod("getPatternInv").invoke(logic);
+                ItemStack physical = makeAggregate(helper, blockId);
+                // Default options skip probabilistic main outputs. Mark the only recipe's
+                // output as probabilistic so the completed expansion is legitimately empty.
+                var server = helper.getLevel().getServer();
+                var recipe = new AggregateRecipe("filtered-empty",
+                        new ResourceLocation("minecraft", "oak_planks"), AggregatePatternKind.CRAFTING,
+                        List.of(new GenericStack(AEItemKey.of(Items.OAK_LOG), 1)),
+                        List.of(new GenericStack(AEItemKey.of(Items.OAK_PLANKS), 4)), 1, 1);
+                var ref = AggregatePatternLibrary.get(server).put(server,
+                        new ResourceLocation("aeallpattern", "filtered_empty_" + System.nanoTime()),
+                        "block.minecraft.crafting_table", List.of(recipe));
+                ModDataComponents.setAggregatePattern(physical, ref);
+                inventory.setItemDirect(0, physical);
+                helper.runAfterDelay(80, () -> {
+                    helper.assertTrue(!io.github.langqi99.aeallpattern.aggregate.AggregateProviderExpansion
+                                    .expectsPublishedChildren(inventory, helper.getLevel()),
+                            "Fully filtered catalog still expects published children");
+                    @SuppressWarnings("unchecked")
+                    List<IPatternDetails> local = (List<IPatternDetails>) Reflect.field(logic, "patterns");
+                    helper.assertTrue(local == null || local.stream().noneMatch(
+                                    p -> p instanceof io.github.langqi99.aeallpattern.aggregate.AggregatePatternDetails
+                                            || p instanceof io.github.langqi99.aeallpattern.aggregate.AggregateAssemblerPatternDetails),
+                            "Filtered catalog unexpectedly published aggregate children");
+                    helper.assertTrue(inventory.getStackInSlot(0).is(ModItems.AGGREGATE_PATTERN.get()),
+                            "Health probe removed the physical aggregate");
+                    helper.succeed();
+                });
+            } catch (ReflectiveOperationException error) {
+                throw new IllegalStateException(error);
+            }
+        });
+    }
+
     private static ItemStack makeAggregate(GameTestHelper helper, ResourceLocation providerId) {
         var server = helper.getLevel().getServer();
         var recipe = new AggregateRecipe("self-heal-" + providerId,

@@ -181,6 +181,15 @@ final class PackagedDraconicAdapter implements MachineAdapter {
             if (!valid(info) || output(info).isEmpty()) {
                 return null;
             }
+            // FusionPackageRecipeInfo.load rebuilds the output from the *current* native
+            // recipe. If a datapack changed that output after the aggregate was saved,
+            // refusing the package is safer than crafting a different item under the old UUID.
+            if (!matchesSavedOutput(recipe, output(info))) {
+                AeAllPattern.LOGGER.warn(
+                        "Draconic fusion recipe {} changed output; refusing stale aggregate package",
+                        recipe.recipeId());
+                return null;
+            }
             return info;
         } catch (ReflectiveOperationException | RuntimeException error) {
             AeAllPattern.LOGGER.debug("Cannot rebuild Draconic fusion package {}", recipe.recipeId(), error);
@@ -256,6 +265,23 @@ final class PackagedDraconicAdapter implements MachineAdapter {
             }
         }
         return ItemStack.EMPTY;
+    }
+
+    /**
+     * PackagedAuto's native fusion package format stores one concrete core/injector stack
+     * per slot. The aggregate catalog may still list tag alternatives for AE2's processing
+     * view, but this machine bridge deliberately requests the saved primary stacks.
+     */
+    private static boolean matchesSavedOutput(AggregateRecipe recipe, ItemStack actual) {
+        if (recipe.outputs().isEmpty() || !(recipe.outputs().get(0).what() instanceof AEItemKey expectedKey)) {
+            return false;
+        }
+        long amount = recipe.outputs().get(0).amount();
+        if (amount <= 0 || amount > Integer.MAX_VALUE) {
+            return false;
+        }
+        ItemStack expected = expectedKey.toStack((int) amount);
+        return ItemStack.isSameItemSameTags(actual, expected) && actual.getCount() == expected.getCount();
     }
 
     static boolean valid(Object info) throws ReflectiveOperationException {

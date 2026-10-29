@@ -41,6 +41,7 @@ public final class AggregateMetadataSyncService {
                         entry.batchIndex(), entry.batchCount(), entry.totalRecipeCount(),
                         entry.batchCount() == 1
                                 && !serverOwnedPackagedCatalog(entry.catalystId())
+                                && AggregateCatalogAuthority.canReplaceSharedCatalog(player)
                                 && AggregateStartupRefreshState.isRequired(player.getServer(), entry.libraryId())))
                 .toList();
         BindingNetwork.sendToPlayer(player, new AggregateMetadataPayload(entries));

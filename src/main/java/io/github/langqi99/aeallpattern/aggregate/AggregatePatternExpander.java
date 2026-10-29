@@ -292,8 +292,10 @@ public final class AggregatePatternExpander {
             return null;
         }
         List<IPatternDetails> cached = context.cache().get(context.key());
-        if (cached != null && !cached.isEmpty()) {
-            return cached.get(0);
+        if (cached != null) {
+            // An empty cached expansion is a completed, legitimately filtered catalog.
+            // Do not rescan it on every health probe.
+            return cached.isEmpty() ? null : cached.get(0);
         }
         for (AggregateRecipe recipe : context.recipes()) {
             IPatternDetails details = expandOne(recipe, context.options(), context.selection(), context.level());

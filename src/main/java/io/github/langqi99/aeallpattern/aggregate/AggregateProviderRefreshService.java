@@ -68,17 +68,28 @@ public final class AggregateProviderRefreshService {
         List<TrackedRefresh> providers =
                 PROVIDERS.computeIfAbsent(server, ignored -> new ArrayList<>());
         providers.removeIf(tracked -> tracked.owner().get() == null);
-        if (providers.stream().noneMatch(tracked -> tracked.owner().get() == owner)) {
-            TrackedRefresh registered = new TrackedRefresh(new WeakReference<>(owner), refresh, healthy, containsLibrary);
-            providers.add(registered);
-            // Network startup may happen *after* the server datapack event. Without
-            // these retries, only the explicit /aeallpattern refresh command can
-            // re-index some addon providers (notably AdvancedAE).
-            long now = server.overworld().getGameTime();
-            List<DelayedRefresh> scheduled = DELAYED.computeIfAbsent(server, ignored -> new ArrayList<>());
-            scheduled.add(new DelayedRefresh(registered, now + 40));
-            scheduled.add(new DelayedRefresh(registered, now + 120));
+        TrackedRefresh existing = providers.stream()
+                .filter(tracked -> tracked.owner().get() == owner)
+                .findFirst().orElse(null);
+        if (existing != null) {
+            // Addons may register once with the legacy 3-arg overload and later re-register
+            // with a library predicate. Upgrade the predicate instead of leaving the host on
+            // the broad compatibility fallback forever.
+            if (existing.containsLibrary() == null && containsLibrary != null) {
+                providers.set(providers.indexOf(existing), new TrackedRefresh(
+                        existing.owner(), existing.refresh(), existing.healthy(), containsLibrary));
+            }
+            return;
         }
+        TrackedRefresh registered = new TrackedRefresh(new WeakReference<>(owner), refresh, healthy, containsLibrary);
+        providers.add(registered);
+        // Network startup may happen *after* the server datapack event. Without
+        // these retries, only the explicit /aeallpattern refresh command can
+        // re-index some addon providers (notably AdvancedAE).
+        long now = server.overworld().getGameTime();
+        List<DelayedRefresh> scheduled = DELAYED.computeIfAbsent(server, ignored -> new ArrayList<>());
+        scheduled.add(new DelayedRefresh(registered, now + 40));
+        scheduled.add(new DelayedRefresh(registered, now + 120));
     }
 
     public static synchronized void onDatapackSync(OnDatapackSyncEvent event) {
@@ -127,12 +138,20 @@ public final class AggregateProviderRefreshService {
                     providers.removeIf(tracked -> tracked.owner().get() == null);
                     for (TrackedRefresh tracked : providers) {
                         Object owner = tracked.owner().get();
-                        if (owner != null && tracked.containsLibrary() != null) {
-                            for (UUID libraryId : changedLibraries) {
-                                if (tracked.containsLibrary().test(owner, libraryId)) {
-                                    due.add(tracked);
-                                    break;
-                                }
+                        if (owner == null) {
+                            continue;
+                        }
+                        if (tracked.containsLibrary() == null) {
+                            // Compatibility fallback for older/addon integrations that have not
+                            // yet supplied a library predicate. Correctness beats a stale catalog;
+                            // known integrations below provide predicates to avoid this broad path.
+                            due.add(tracked);
+                            continue;
+                        }
+                        for (UUID libraryId : changedLibraries) {
+                            if (tracked.containsLibrary().test(owner, libraryId)) {
+                                due.add(tracked);
+                                break;
                             }
                         }
                     }

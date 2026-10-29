@@ -33,8 +33,8 @@ public final class AggregateGenerationService {
     private static final long UPLOAD_TIMEOUT_TICKS = 20L * 120L;
     // A client must not pin unlimited concurrent large upload catalogs in server RAM.
     private static final int MAX_CONCURRENT_UPLOADS_PER_PLAYER = 2;
-    private static final long MAX_BUFFERED_UPLOAD_BYTES = 32L * 1024 * 1024;
-    private static final int MAX_SERVER_PAGE_RECIPE_BYTES = 20_000;
+    private static final long MAX_BUFFERED_UPLOAD_BYTES = AggregateUploadLimits.MAX_BUFFERED_UPLOAD_BYTES;
+    private static final int MAX_SERVER_PAGE_RECIPE_BYTES = AggregateUploadLimits.MAX_PAGE_RECIPE_BYTES;
     private static final Map<UploadKey, Upload> UPLOADS = new HashMap<>();
 
     private AggregateGenerationService() {
@@ -57,8 +57,21 @@ public final class AggregateGenerationService {
         if (!validTarget(payload, player)) {
             return;
         }
-        if (payload.totalRecipeCount() > AggregatePatternData.configuredRecipeLimit()) {
+        if (!hasCatalogAuthority(payload, player)) {
+            rejectAndDiscard(player, payload, "message.aeallpattern.generator.upload_unauthorized");
             return;
+        }
+        if (payload.totalRecipeCount() > AggregatePatternData.configuredRecipeLimit()) {
+            rejectAndDiscard(player, payload, "message.aeallpattern.generator.upload_too_many_recipes");
+            return;
+        }
+        long pageBytes = 0;
+        for (AggregateRecipe recipe : payload.recipes()) {
+            pageBytes += recipe.encodedSizeEstimate();
+            if (pageBytes > MAX_SERVER_PAGE_RECIPE_BYTES) {
+                rejectAndDiscard(player, payload, "message.aeallpattern.generator.upload_recipe_too_large");
+                return;
+            }
         }
 
         UploadKey key = new UploadKey(player.getUUID(), payload.uploadId());
@@ -66,11 +79,19 @@ public final class AggregateGenerationService {
                 .filter(existing -> existing.playerId().equals(player.getUUID()))
                 .count() >= MAX_CONCURRENT_UPLOADS_PER_PLAYER) {
             AeAllPattern.LOGGER.warn("Rejecting excess concurrent aggregate uploads from {}", player.getUUID());
+            reject(player, payload, "message.aeallpattern.generator.upload_busy");
             return;
         }
         Upload upload = UPLOADS.computeIfAbsent(key, ignored -> new Upload(payload, now));
-        if (!upload.matches(payload) || !upload.add(payload, now)) {
+        if (!upload.matches(payload)) {
             UPLOADS.remove(key);
+            reject(player, payload, "message.aeallpattern.generator.upload_invalid");
+            return;
+        }
+        Upload.AddResult added = upload.add(payload, now);
+        if (added != Upload.AddResult.OK) {
+            UPLOADS.remove(key);
+            reject(player, payload, added.reasonKey());
             return;
         }
         if (!upload.complete()) {
@@ -189,6 +210,38 @@ public final class AggregateGenerationService {
         return target == null || MachineAdapterRegistry.find(player.serverLevel(), target).isEmpty();
     }
 
+    /**
+     * Client viewer data may create a new catalog, but replacing an existing shared
+     * catalog (explicit refresh or generator reuse of the same catalyst) requires
+     * operator-level authority. The singleplayer host is always allowed.
+     */
+    private static boolean hasCatalogAuthority(GenerateAggregatePayload payload, ServerPlayer player) {
+        if (AggregateCatalogAuthority.canReplaceSharedCatalog(player)) {
+            return true;
+        }
+        if (payload.replacementLibraryId() != null) {
+            return false;
+        }
+        return AggregatePatternLibrary.get(Objects.requireNonNull(player.getServer())).entries().stream()
+                .noneMatch(entry -> entry.batchCount() == 1
+                        && entry.catalystId().equals(payload.catalystId()));
+    }
+
+    private static void reject(ServerPlayer player, GenerateAggregatePayload payload, String reasonKey) {
+        // GameTest mock players have no connection; real players always do.
+        if (player.connection != null) {
+            BindingNetwork.sendToPlayer(player, new AggregateUploadRejectedPayload(payload.uploadId(), reasonKey));
+        }
+    }
+
+    private static void rejectAndDiscard(
+            ServerPlayer player, GenerateAggregatePayload payload, String reasonKey) {
+        // Do not let a rejected upload pin server RAM or repeatedly trigger the
+        // concurrent-upload guard while the client drains the rest of its queue.
+        UPLOADS.remove(new UploadKey(player.getUUID(), payload.uploadId()));
+        reject(player, payload, reasonKey);
+    }
+
     private static boolean holdsGenerator(ServerPlayer player) {
         return player.getMainHandItem().is(ModItems.ALL_PATTERN_GENERATOR.get())
                 || player.getOffhandItem().is(ModItems.ALL_PATTERN_GENERATOR.get());
@@ -228,31 +281,47 @@ public final class AggregateGenerationService {
                     && totalRecipeCount == page.totalRecipeCount();
         }
 
-        private boolean add(GenerateAggregatePayload page, long now) {
+        private enum AddResult {
+            OK(null),
+            INVALID("message.aeallpattern.generator.upload_invalid"),
+            TOO_MANY_RECIPES("message.aeallpattern.generator.upload_too_many_recipes"),
+            PAGE_TOO_LARGE("message.aeallpattern.generator.upload_recipe_too_large"),
+            UPLOAD_TOO_LARGE("message.aeallpattern.generator.upload_too_large");
+
+            private final String reasonKey;
+
+            AddResult(String reasonKey) {
+                this.reasonKey = reasonKey;
+            }
+
+            private String reasonKey() {
+                return reasonKey;
+            }
+        }
+
+        private AddResult add(GenerateAggregatePayload page, long now) {
             List<AggregateRecipe> previous = pages.get(page.pageIndex());
-            if (previous != null && !previous.equals(page.recipes())) {
-                return false;
+            if (previous != null) {
+                return previous.equals(page.recipes()) ? AddResult.OK : AddResult.INVALID;
             }
-            if (previous == null) {
-                if ((long) bufferedRecipes + page.recipes().size() > totalRecipeCount) {
-                    return false;
-                }
-                long pageBytes = 0;
-                for (AggregateRecipe recipe : page.recipes()) {
-                    pageBytes += recipe.encodedSizeEstimate();
-                    if (pageBytes > MAX_SERVER_PAGE_RECIPE_BYTES) {
-                        return false;
-                    }
-                }
-                if (bufferedBytes + pageBytes > MAX_BUFFERED_UPLOAD_BYTES) {
-                    return false;
-                }
-                bufferedRecipes += page.recipes().size();
-                bufferedBytes += pageBytes;
-                pages.put(page.pageIndex(), page.recipes());
+            if ((long) bufferedRecipes + page.recipes().size() > totalRecipeCount) {
+                return AddResult.TOO_MANY_RECIPES;
             }
+            long pageBytes = 0;
+            for (AggregateRecipe recipe : page.recipes()) {
+                pageBytes += recipe.encodedSizeEstimate();
+                if (pageBytes > MAX_SERVER_PAGE_RECIPE_BYTES) {
+                    return AddResult.PAGE_TOO_LARGE;
+                }
+            }
+            if (bufferedBytes + pageBytes > MAX_BUFFERED_UPLOAD_BYTES) {
+                return AddResult.UPLOAD_TOO_LARGE;
+            }
+            bufferedRecipes += page.recipes().size();
+            bufferedBytes += pageBytes;
+            pages.put(page.pageIndex(), page.recipes());
             lastUpdateTick = now;
-            return true;
+            return AddResult.OK;
         }
 
         private boolean complete() {

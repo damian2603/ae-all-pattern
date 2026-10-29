@@ -125,6 +125,10 @@ public final class ClientEvents {
         ClientBindingState.clear();
         io.github.langqi99.aeallpattern.aggregate.AggregateMetadataView.replace(java.util.List.of());
         AggregateStartupRefreshService.reset();
+        ClientJeiAggregateScanner.reset();
+        if (ModList.get().isLoaded("emi") && ModList.get().isLoaded("toomanyrecipeviewers")) {
+            io.github.langqi99.aeallpattern.compat.emi.EmiAggregateScanner.reset();
+        }
     }
 
     private static void renderBindings(RenderLevelStageEvent event) {

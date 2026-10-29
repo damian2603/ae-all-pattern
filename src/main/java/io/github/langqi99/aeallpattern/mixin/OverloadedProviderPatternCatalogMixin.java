@@ -65,7 +65,10 @@ public abstract class OverloadedProviderPatternCatalogMixin {
         if (level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
             AggregateProviderRefreshService.track(
                     serverLevel.getServer(), this,
-                    owner -> ((OverloadedProviderPatternCatalogMixin) owner).aeallpattern$rerunRebuild());
+                    owner -> ((OverloadedProviderPatternCatalogMixin) owner).aeallpattern$rerunRebuild(),
+                    null,
+                    (owner, libraryId) -> io.github.langqi99.aeallpattern.aggregate.AggregateProviderExpansion.containsLibrary(
+                            ((OverloadedProviderPatternCatalogMixin) owner).aeallpattern$lastInventory, libraryId));
         }
         patterns.removeIf(AggregatePatternMarkerDetails.class::isInstance);
 

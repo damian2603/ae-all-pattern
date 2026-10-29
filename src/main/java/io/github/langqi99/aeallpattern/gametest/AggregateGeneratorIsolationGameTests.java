@@ -142,6 +142,25 @@ public final class AggregateGeneratorIsolationGameTests {
     }
 
     @GameTest(batch = "provider_compat", template = "empty", timeoutTicks = 110)
+    public static void legacyTrackedProviderWithoutPredicateStillRefreshesOnCatalogChange(GameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        AggregateProviderRefreshService.tickServer(server);
+        Object legacyProvider = new Object();
+        AtomicInteger refreshes = new AtomicInteger();
+        // Older/addon integrations may only supply the 3-arg track overload. They must not
+        // silently miss targeted catalog updates just because they lack a library predicate.
+        AggregateProviderRefreshService.track(server, legacyProvider,
+                owner -> refreshes.incrementAndGet());
+        AggregateCatalogMutationService.put(
+                server, uniqueMachine(), "block.minecraft.crafting_table", testRecipes("legacy-host"));
+        AggregateProviderRefreshService.tickServer(server);
+        helper.assertTrue(legacyProvider != null, "Legacy provider fixture was lost");
+        helper.assertTrue(refreshes.get() == 1,
+                "Legacy provider without containsLibrary missed a catalog mutation");
+        helper.succeed();
+    }
+
+    @GameTest(batch = "provider_compat", template = "empty", timeoutTicks = 110)
     public static void regeneratingExistingMachineRefreshesOnlyReferencingProvider(GameTestHelper helper) {
         var server = helper.getLevel().getServer();
         ResourceLocation machine = uniqueMachine();

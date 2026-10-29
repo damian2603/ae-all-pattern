@@ -14,9 +14,12 @@ import io.github.langqi99.aeallpattern.aggregate.AggregateRecipe;
 import io.github.langqi99.aeallpattern.compat.jei.AeAllPatternJeiPlugin;
 import io.github.langqi99.aeallpattern.compat.emi.EmiAggregateScanner;
 import io.github.langqi99.aeallpattern.network.GenerateAggregatePayload;
+import io.github.langqi99.aeallpattern.network.AggregateUploadLimits;
 import io.github.langqi99.aeallpattern.recipe.RecipeFingerprint;
 import io.github.langqi99.aeallpattern.registry.ModItems;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -77,7 +80,7 @@ public final class ClientJeiAggregateScanner {
      * unbounded (alternatives, fluids, components), so pages use measured recipe wire
      * sizes rather than a fixed recipe count; 20 KiB leaves room for packet headers.
      */
-    private static final int MAX_UPLOAD_PAGE_BYTES = 20_000;
+    private static final int MAX_UPLOAD_PAGE_BYTES = AggregateUploadLimits.MAX_PAGE_RECIPE_BYTES;
     // Sending hundreds of catalog pages in one tick causes a client frame spike.
     private static final int UPLOAD_PAGES_PER_TICK = 8;
     /** How often the action bar reports scan progress while a large scan runs. */
@@ -85,7 +88,7 @@ public final class ClientJeiAggregateScanner {
     private static long lastScanTick = Long.MIN_VALUE;
     private static BlockPos lastScanPos = BlockPos.ZERO;
     private static ScanJob activeJob;
-    private static PendingUpload pendingUpload;
+    private static final Deque<PendingUpload> pendingUploads = new ArrayDeque<>();
     private static volatile boolean vanillaScanRunning;
 
     private record ScanTarget(
@@ -112,7 +115,7 @@ public final class ClientJeiAggregateScanner {
         }
         lastScanTick = level.getGameTime();
         lastScanPos = event.getPos().immutable();
-        if (isBusy()) {
+        if (isBusy() || EmiAggregateScanner.isBusy()) {
             return;
         }
 
@@ -139,13 +142,12 @@ public final class ClientJeiAggregateScanner {
         if (event.phase != net.minecraftforge.event.TickEvent.Phase.END) { return; }
         var minecraft = net.minecraft.client.Minecraft.getInstance();
         if (minecraft.level == null || minecraft.player == null) {
-            activeJob = null;
-            pendingUpload = null;
+            reset();
             return;
         }
-        PendingUpload upload = pendingUpload;
+        PendingUpload upload = pendingUploads.peekFirst();
         if (upload != null && upload.advance()) {
-            pendingUpload = null;
+            pendingUploads.removeFirst();
         }
         ScanJob job = activeJob;
         if (job != null && job.step()) {
@@ -194,7 +196,20 @@ public final class ClientJeiAggregateScanner {
     }
 
     public static boolean isBusy() {
-        return activeJob != null || pendingUpload != null || vanillaScanRunning;
+        return activeJob != null || !pendingUploads.isEmpty() || vanillaScanRunning;
+    }
+
+    /** Clears all client scan/upload state when leaving a world. */
+    public static void reset() {
+        activeJob = null;
+        pendingUploads.clear();
+        vanillaScanRunning = false;
+    }
+
+    /** Server-side quota/authority rejection: stop the matching queued upload and tell the player. */
+    public static void rejectUpload(UUID uploadId, String reasonKey) {
+        pendingUploads.removeIf(upload -> upload.uploadId.equals(uploadId));
+        show(reasonKey);
     }
 
     private static boolean startScan(
@@ -556,19 +571,26 @@ public final class ClientJeiAggregateScanner {
         List<List<AggregateRecipe>> pages;
         try {
             pages = createPages(selected);
+        } catch (UploadTooLargeException tooLarge) {
+            AeAllPattern.LOGGER.warn("Aggregate upload cancelled: catalog exceeds the server byte budget");
+            show("message.aeallpattern.generator.upload_too_large");
+            return;
         } catch (RuntimeException oversized) {
             AeAllPattern.LOGGER.warn("Aggregate upload cancelled; one recipe cannot fit in a packet", oversized);
-            var player = net.minecraft.client.Minecraft.getInstance().player;
-            if (player != null) {
-                player.displayClientMessage(Component.literal(
-                        "Aggregate scan cancelled: a recipe exceeds the 20 kB upload limit"), true);
-            }
+            show("message.aeallpattern.generator.upload_recipe_too_large");
             return;
         }
         if (pages.isEmpty()) {
             pages = List.of(List.of());
         }
-        pendingUpload = new PendingUpload(uploadId, target, pages, selected.size());
+        // Queue instead of overwriting. EMI/JEI and startup refresh can finish close together;
+        // dropping an unsent PendingUpload here used to lose a whole catalog refresh.
+        pendingUploads.addLast(new PendingUpload(uploadId, target, pages, selected.size()));
+    }
+
+    /** Test-only view of queued upload count. */
+    static int pendingUploadCount() {
+        return pendingUploads.size();
     }
 
     /** Queue pages on the client thread; preserve order and the upload UUID. */
@@ -600,16 +622,24 @@ public final class ClientJeiAggregateScanner {
         }
     }
 
+    private static final class UploadTooLargeException extends RuntimeException {
+    }
+
     private static @NotNull List<List<AggregateRecipe>> createPages(List<AggregateRecipe> recipes) {
         List<List<AggregateRecipe>> pages = new ArrayList<>();
         List<AggregateRecipe> current = new ArrayList<>();
         int currentBytes = 0;
+        long totalBytes = 0;
         for (AggregateRecipe recipe : recipes) {
             int bytes = recipe.encodedSizeEstimate();
             if (bytes > MAX_UPLOAD_PAGE_BYTES) {
                 throw new IllegalArgumentException(
                         "aggregate recipe too large for upload: " + recipe.recipeId()
                                 + " (" + bytes + " bytes)");
+            }
+            totalBytes += bytes;
+            if (totalBytes > AggregateUploadLimits.MAX_BUFFERED_UPLOAD_BYTES) {
+                throw new UploadTooLargeException();
             }
             if (!current.isEmpty()
                     && (currentBytes + bytes > MAX_UPLOAD_PAGE_BYTES
