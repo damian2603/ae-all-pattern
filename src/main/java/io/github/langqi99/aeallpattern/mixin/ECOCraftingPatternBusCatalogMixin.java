@@ -51,7 +51,10 @@ public abstract class ECOCraftingPatternBusCatalogMixin {
         var host = aeallpattern$host();
         if (!(host.getLevel() instanceof ServerLevel level)) return;
         AggregateProviderRefreshService.track(level.getServer(), this,
-                owner -> ((ECOCraftingPatternBusCatalogMixin) owner).aeallpattern$requestRefresh());
+                owner -> ((ECOCraftingPatternBusCatalogMixin) owner).aeallpattern$requestRefresh(),
+                null,
+                (owner, libraryId) -> io.github.langqi99.aeallpattern.aggregate.AggregateProviderExpansion.containsLibrary(
+                        ((ECOCraftingPatternBusCatalogMixin) owner).inventory, libraryId));
         patternDetails.removeIf(io.github.langqi99.aeallpattern.aggregate.AggregatePatternMarkerDetails.class::isInstance);
         for (var stack : inventory) {
             for (var pattern : AggregatePatternExpander.expandScheduled(stack, level, this::aeallpattern$requestRefresh)) {

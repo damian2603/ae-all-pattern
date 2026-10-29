@@ -4,6 +4,7 @@ import io.github.langqi99.aeallpattern.aggregate.AggregateMetadataView;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternSelectionMenu;
 import io.github.langqi99.aeallpattern.network.AggregateMetadataPayload;
 import io.github.langqi99.aeallpattern.network.AggregateSearchResultPayload;
+import io.github.langqi99.aeallpattern.network.AggregateUploadRejectedPayload;
 import io.github.langqi99.aeallpattern.network.BindingSyncPayload;
 import net.minecraft.client.Minecraft;
 
@@ -27,5 +28,9 @@ public final class ClientNetworkHandlers {
                 && minecraft.player.containerMenu instanceof AggregatePatternSelectionMenu menu) {
             screen.receiveSearchResult(payload, menu);
         }
+    }
+
+    public static void handle(AggregateUploadRejectedPayload payload) {
+        ClientJeiAggregateScanner.rejectUpload(payload.uploadId(), payload.reasonKey());
     }
 }

@@ -36,6 +36,11 @@ public final class EmiAggregateScanner {
         return RUNNING.get();
     }
 
+    /** Called on logout so an in-flight EMI worker cannot leak into the next world. */
+    public static void reset() {
+        RUNNING.set(false);
+    }
+
     public static boolean scan(BlockPos pos) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level == null || minecraft.player == null) return true;
@@ -60,13 +65,18 @@ public final class EmiAggregateScanner {
         List<EmiRecipe> candidates = categories.stream().filter(category -> category.getId().equals(categoryId))
                 .flatMap(c -> manager.getRecipes(c).stream())
                 .toList();
-        if (candidates.isEmpty() || !RUNNING.compareAndSet(false, true)) return false;
+        if (candidates.isEmpty() || ClientJeiAggregateScanner.isBusy()
+                || !RUNNING.compareAndSet(false, true)) return false;
         var connection = minecraft.getConnection();
         if (connection == null) { RUNNING.set(false); return true; }
         ResourceLocation catalystId = BuiltInRegistries.BLOCK.getKey(block);
         CompletableFuture.runAsync(() -> buildAndSend(machinePos, catalystId, block.getDescriptionId(), null,
                 candidates))
-                .whenComplete((ignored, error) -> RUNNING.set(false));
+                .whenComplete((ignored, error) -> {
+                    if (error != null) {
+                        RUNNING.set(false);
+                    }
+                });
         return true;
     }
 
@@ -77,7 +87,8 @@ public final class EmiAggregateScanner {
         }
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level == null || minecraft.player == null || minecraft.getConnection() == null
-                || entry.batchCount() != 1 || !RUNNING.compareAndSet(false, true)) {
+                || entry.batchCount() != 1 || ClientJeiAggregateScanner.isBusy()
+                || !RUNNING.compareAndSet(false, true)) {
             return false;
         }
         try {
@@ -114,7 +125,11 @@ public final class EmiAggregateScanner {
             CompletableFuture.runAsync(() -> buildAndSend(
                     BlockPos.ZERO, entry.catalystId(), entry.machineTranslationKey(), entry.libraryId(),
                     candidates))
-                    .whenComplete((ignored, error) -> RUNNING.set(false));
+                    .whenComplete((ignored, error) -> {
+                        if (error != null) {
+                            RUNNING.set(false);
+                        }
+                    });
             return true;
         } catch (RuntimeException error) {
             RUNNING.set(false);
@@ -151,21 +166,31 @@ public final class EmiAggregateScanner {
                 catalystId, candidates.size(), recipes.size(), rejected, encodingFailed, firstError);
         if (recipes.isEmpty()) {
             Minecraft.getInstance().execute(() -> {
-                if (replacementLibraryId == null) {
-                    show("message.aeallpattern.generator.no_item_recipes");
-                } else {
-                    ClientJeiAggregateScanner.uploadRefresh(
-                            List.of(), replacementLibraryId, catalystId, machineName);
+                try {
+                    if (replacementLibraryId == null) {
+                        show("message.aeallpattern.generator.no_item_recipes");
+                    } else {
+                        ClientJeiAggregateScanner.uploadRefresh(
+                                List.of(), replacementLibraryId, catalystId, machineName);
+                    }
+                } finally {
+                    RUNNING.set(false);
                 }
             });
             return;
         }
         Minecraft.getInstance().execute(() -> {
-            if (replacementLibraryId == null) {
-                ClientJeiAggregateScanner.upload(recipes, pos, machineName, catalystId);
-            } else {
-                ClientJeiAggregateScanner.uploadRefresh(
-                        recipes, replacementLibraryId, catalystId, machineName);
+            try {
+                if (replacementLibraryId == null) {
+                    ClientJeiAggregateScanner.upload(recipes, pos, machineName, catalystId);
+                } else {
+                    ClientJeiAggregateScanner.uploadRefresh(
+                            recipes, replacementLibraryId, catalystId, machineName);
+                }
+            } finally {
+                // Release only after PendingUpload is queued; otherwise a second scan can
+                // start while the first upload is still waiting for the client tick pump.
+                RUNNING.set(false);
             }
         });
     }

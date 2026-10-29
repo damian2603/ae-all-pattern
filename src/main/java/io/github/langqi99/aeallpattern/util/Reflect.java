@@ -54,6 +54,26 @@ public final class Reflect {
         return method.invoke(target, args);
     }
 
+    /** Resolves protected/package-private addon methods, including methods inherited from a superclass. */
+    public static Object invokeDeclared(Object target, String name, Object... args)
+            throws ReflectiveOperationException {
+        Class<?>[] types = new Class<?>[args.length];
+        for (int index = 0; index < args.length; index++) {
+            types[index] = primitive(args[index].getClass());
+        }
+        Class<?> type = target.getClass();
+        while (type != null) {
+            try {
+                Method method = type.getDeclaredMethod(name, types);
+                method.setAccessible(true);
+                return method.invoke(target, args);
+            } catch (NoSuchMethodException ignored) {
+                type = type.getSuperclass();
+            }
+        }
+        throw new NoSuchMethodException(name + " on " + target.getClass().getName());
+    }
+
     private static Class<?> primitive(Class<?> type) {
         if (type == Integer.class) return int.class;
         if (type == Boolean.class) return boolean.class;

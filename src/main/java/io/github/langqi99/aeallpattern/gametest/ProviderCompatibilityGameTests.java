@@ -162,8 +162,12 @@ public final class ProviderCompatibilityGameTests {
         if (phase.isEmpty() || block.isEmpty()) { helper.succeed(); return; }
         var level = helper.getLevel();
         // Non-persisted ticket: keep cold-chunk generation alive on slower CI workers.
-        level.getChunkSource().addRegionTicket(net.minecraft.server.level.TicketType.START,
-                new net.minecraft.world.level.ChunkPos(ECO_RESTART), 3, net.minecraft.util.Unit.INSTANCE, true);
+        // This real-restart fixture lives outside the GameTest plot. A START
+        // ticket can provide access to the chunk without its AE2 block entities
+        // ever receiving onReady()/ticks on a busy CI worker. Force the chunk
+        // in both phases so we test reindexing of a genuinely loaded provider.
+        var ecoChunk = new net.minecraft.world.level.ChunkPos(ECO_RESTART);
+        level.setChunkForced(ecoChunk.x, ecoChunk.z, true);
         level.getChunkAt(ECO_RESTART);
         if (phase.equals("seed")) {
             level.setBlockAndUpdate(ECO_RESTART, block.get().defaultBlockState());
@@ -206,8 +210,10 @@ public final class ProviderCompatibilityGameTests {
         if (phase.isEmpty()) { helper.succeed(); return; }
         var pos = new BlockPos(1096, 80, 1032);
         var level = helper.getLevel();
-        level.getChunkSource().addRegionTicket(net.minecraft.server.level.TicketType.START,
-                new net.minecraft.world.level.ChunkPos(pos), 3, net.minecraft.util.Unit.INSTANCE, true);
+        // As with the ECO fixture, keep the off-plot ME node entity-ticking
+        // across seed/save/restart, not merely accessible through getChunkAt().
+        var vanillaChunk = new net.minecraft.world.level.ChunkPos(pos);
+        level.setChunkForced(vanillaChunk.x, vanillaChunk.z, true);
         level.getChunkAt(pos);
         if (phase.equals("seed")) {
             level.setBlockAndUpdate(pos, appeng.core.definitions.AEBlocks.PATTERN_PROVIDER.block().defaultBlockState());

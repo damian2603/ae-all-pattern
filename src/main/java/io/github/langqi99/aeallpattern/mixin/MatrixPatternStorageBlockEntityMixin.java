@@ -48,7 +48,10 @@ public abstract class MatrixPatternStorageBlockEntityMixin {
             if (level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
                 AggregateProviderRefreshService.track(
                         serverLevel.getServer(), this,
-                        owner -> ((MatrixPatternStorageBlockEntityMixin) owner).aeallpattern$rerunRebuild());
+                        owner -> ((MatrixPatternStorageBlockEntityMixin) owner).aeallpattern$rerunRebuild(),
+                        null,
+                        (owner, libraryId) -> ((MatrixPatternStorageBlockEntityMixin) owner)
+                                .aeallpattern$containsLibrary(libraryId));
             }
             @SuppressWarnings("unchecked")
             List<IPatternDetails> cached = (List<IPatternDetails>) field(self, "cachedPatterns");
@@ -81,6 +84,27 @@ public abstract class MatrixPatternStorageBlockEntityMixin {
             AeAllPattern.LOGGER.debug(
                     "Could not expand aggregate patterns for a matrix pattern storage", error);
         }
+    }
+
+    @org.spongepowered.asm.mixin.Unique
+    private boolean aeallpattern$containsLibrary(java.util.UUID libraryId) {
+        try {
+            Object inventory = invoke((Object) this, "getInventory");
+            if (inventory == null) {
+                return false;
+            }
+            int slots = ((Number) invoke(inventory, "getSlots")).intValue();
+            for (int slot = 0; slot < slots; slot++) {
+                ItemStack stack = (ItemStack) invoke(inventory, "getStackInSlot", slot);
+                var ref = io.github.langqi99.aeallpattern.registry.ModDataComponents.getAggregatePattern(stack);
+                if (ref != null && libraryId.equals(ref.libraryId())) {
+                    return true;
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            AeAllPattern.LOGGER.debug("Could not inspect matrix pattern storage catalog", error);
+        }
+        return false;
     }
 
     /** Re-runs the host's rebuild so the completed scheduled expansion gets published. */

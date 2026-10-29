@@ -1,0 +1,11 @@
+{
+  "type": "extendedcrafting:combination",
+  "input": { "item": "minecraft:diamond" },
+  "ingredients": [
+    { "item": "minecraft:redstone" },
+    { "item": "minecraft:glowstone_dust" }
+  ],
+  "result": { "item": "minecraft:emerald" },
+  "powerCost": 1000,
+  "powerRate": 100
+}

@@ -185,5 +185,11 @@
   "gui.aeallpattern.aggregate_selection.search_scope_output": "产物",
   "gui.aeallpattern.aggregate_selection.search_scope_input": "原料",
   "gui.aeallpattern.aggregate_selection.search_scope_all": "全部",
-  "gui.aeallpattern.aggregate_selection.search_hint": "搜索原料或产物…"
+  "gui.aeallpattern.aggregate_selection.search_hint": "搜索原料或产物…",
+  "message.aeallpattern.generator.upload_too_large": "聚合扫描已取消：目录超过 32 MiB 上传限制",
+  "message.aeallpattern.generator.upload_recipe_too_large": "聚合扫描已取消：单个配方超过 20 kB 上传限制",
+  "message.aeallpattern.generator.upload_too_many_recipes": "聚合扫描已取消：配方数量超过配置限制",
+  "message.aeallpattern.generator.upload_unauthorized": "只有管理员可以替换已有的共享聚合目录",
+  "message.aeallpattern.generator.upload_busy": "聚合上传被拒绝：已有太多上传正在进行",
+  "message.aeallpattern.generator.upload_invalid": "聚合上传被拒绝：上传页面不一致"
 }

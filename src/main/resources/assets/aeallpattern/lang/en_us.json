@@ -185,5 +185,11 @@
   "gui.aeallpattern.aggregate_selection.search_scope_output": "Outputs",
   "gui.aeallpattern.aggregate_selection.search_scope_input": "Inputs",
   "gui.aeallpattern.aggregate_selection.search_scope_all": "All",
-  "gui.aeallpattern.aggregate_selection.search_hint": "Search inputs or outputs…"
+  "gui.aeallpattern.aggregate_selection.search_hint": "Search inputs or outputs…",
+  "message.aeallpattern.generator.upload_too_large": "Aggregate scan cancelled: the catalog exceeds the 32 MiB upload limit",
+  "message.aeallpattern.generator.upload_recipe_too_large": "Aggregate scan cancelled: a recipe exceeds the 20 kB upload limit",
+  "message.aeallpattern.generator.upload_too_many_recipes": "Aggregate scan cancelled: too many recipes for the configured limit",
+  "message.aeallpattern.generator.upload_unauthorized": "Only operators may replace an existing shared aggregate catalog",
+  "message.aeallpattern.generator.upload_busy": "Aggregate upload rejected: too many uploads are already in progress",
+  "message.aeallpattern.generator.upload_invalid": "Aggregate upload rejected: inconsistent upload pages"
 }

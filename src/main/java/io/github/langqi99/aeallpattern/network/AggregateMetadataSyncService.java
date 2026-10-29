@@ -24,6 +24,15 @@ public final class AggregateMetadataSyncService {
         }
     }
 
+    /** Machine adapters read these recipes directly from the server recipe manager.
+     *  Sending them through JEI/EMI at login is not only redundant: incomplete
+     *  viewer registration can replace an entire persisted catalog with 0/0. */
+    static boolean serverOwnedPackagedCatalog(net.minecraft.resources.ResourceLocation catalystId) {
+        return catalystId.getNamespace().equals("packagedexcrafting")
+                || catalystId.getNamespace().equals("packagedavaritia")
+                || catalystId.getNamespace().equals("packageddraconic");
+    }
+
     public static void send(ServerPlayer player) {
         var entries = AggregatePatternLibrary.get(Objects.requireNonNull(player.getServer())).entries().stream()
                 .map(entry -> new AggregateMetadataView.Entry(
@@ -31,6 +40,8 @@ public final class AggregateMetadataSyncService {
                         entry.contentHash(), entry.recipeCount(), entry.seriesHash(), entry.batchSize(),
                         entry.batchIndex(), entry.batchCount(), entry.totalRecipeCount(),
                         entry.batchCount() == 1
+                                && !serverOwnedPackagedCatalog(entry.catalystId())
+                                && AggregateCatalogAuthority.canReplaceSharedCatalog(player)
                                 && AggregateStartupRefreshState.isRequired(player.getServer(), entry.libraryId())))
                 .toList();
         BindingNetwork.sendToPlayer(player, new AggregateMetadataPayload(entries));

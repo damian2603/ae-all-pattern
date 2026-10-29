@@ -10,6 +10,7 @@ import io.github.langqi99.aeallpattern.AeAllPattern;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternMarkerDetails;
 import io.github.langqi99.aeallpattern.aggregate.AggregateProviderExpansion;
 import io.github.langqi99.aeallpattern.aggregate.AggregateProviderRefreshService;
+import io.github.langqi99.aeallpattern.aggregate.AggregateCraftingIndexProbe;
 import io.github.langqi99.aeallpattern.util.Reflect;
 import java.util.List;
 import java.util.Set;
@@ -55,15 +56,24 @@ public abstract class AdvPatternProviderLogicMixin {
             if (level == null) {
                 return;
             }
-            if (level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
-                AggregateProviderRefreshService.track(
-                        serverLevel.getServer(), this,
-                        owner -> ((AdvPatternProviderLogicMixin) owner).aeallpattern$rerunUpdatePatterns());
-            }
             List<IPatternDetails> patterns = Reflect.field(self, "patterns", List.class);
             InternalInventory inventory = Reflect.field(self, "patternInventory", InternalInventory.class);
             if (patterns == null || inventory == null) {
                 return;
+            }
+            if (AggregateProviderExpansion.containsAggregate(inventory)
+                    && level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+                AggregateProviderRefreshService.track(
+                        serverLevel.getServer(), this,
+                        owner -> ((AdvPatternProviderLogicMixin) owner).aeallpattern$rerunUpdatePatterns(),
+                        owner -> AggregateCraftingIndexProbe.isIndexed(
+                                Reflect.field(owner, "mainNode", appeng.api.networking.IManagedGridNode.class),
+                                Reflect.field(owner, "patterns", List.class),
+                                AggregateProviderExpansion.expectsPublishedChildren(
+                                        Reflect.field(owner, "patternInventory", InternalInventory.class),
+                                        ((AdvPatternProviderLogicMixin) owner).level())),
+                        (owner, libraryId) -> AggregateProviderExpansion.containsLibrary(
+                                Reflect.field(owner, "patternInventory", InternalInventory.class), libraryId));
             }
             // Drop the single-child marker the host just decoded; the full expansion replaces it.
             patterns.removeIf(AggregatePatternMarkerDetails.class::isInstance);
@@ -130,9 +140,7 @@ public abstract class AdvPatternProviderLogicMixin {
     private void aeallpattern$rerunUpdatePatterns() {
         aeallpattern$rerunning = true;
         try {
-            java.lang.reflect.Method method = ((Object) this).getClass().getMethod("updatePatterns");
-            method.setAccessible(true);
-            method.invoke(this);
+            Reflect.invokeDeclared(this, "updatePatterns");
         } catch (ReflectiveOperationException | RuntimeException error) {
             AeAllPattern.LOGGER.debug("Could not re-run Advanced AE updatePatterns", error);
         } finally {

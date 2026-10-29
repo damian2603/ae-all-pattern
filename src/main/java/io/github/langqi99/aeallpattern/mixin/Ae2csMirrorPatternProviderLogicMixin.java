@@ -27,7 +27,10 @@ public abstract class Ae2csMirrorPatternProviderLogicMixin {
                         Reflect.invoke(owner, "updatePatterns");
                     } catch (ReflectiveOperationException | RuntimeException ignored) {
                     }
-                });
+                }, null, (owner, libraryId) ->
+                        io.github.langqi99.aeallpattern.aggregate.AggregateProviderExpansion.containsLibrary(
+                                Reflect.field(owner, "patternInventory",
+                                        appeng.api.inventories.InternalInventory.class), libraryId));
             }
         } catch (ReflectiveOperationException | RuntimeException ignored) {
         }

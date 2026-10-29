@@ -40,7 +40,10 @@ public abstract class Ae2csIntegratedInterfaceLogicMixin {
             if (level == null) return;
             if (level instanceof ServerLevel serverLevel) {
                 AggregateProviderRefreshService.track(serverLevel.getServer(), this,
-                        owner -> ((Ae2csIntegratedInterfaceLogicMixin) owner).aeallpattern$rerunUpdatePatterns());
+                        owner -> ((Ae2csIntegratedInterfaceLogicMixin) owner).aeallpattern$rerunUpdatePatterns(),
+                        null,
+                        (owner, libraryId) -> AggregateProviderExpansion.containsLibrary(
+                                Reflect.field(owner, "patternInventory", InternalInventory.class), libraryId));
             }
 
             List<IPatternDetails> patterns = Reflect.field(this, "patterns", List.class);

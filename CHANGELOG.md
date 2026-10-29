@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.7-beta.3 - 2026-10-29
+
+- PackagedAuto's ME Packaging Provider now honors its **Direct**, **Packaging**, and **Unpackaging** mode switches for Aggregate Patterns. Direct mode uses PackagedAuto's native `DirectCraftingPatternDetails` and still dispatches machine-backed recipes through `IPackageCraftingMachine.acceptPackage`.
+- Added provider-compat GameTests for direct/packaging/unpackaging publication and direct dispatch into a PackagedExCrafting crafter. The Forge no-GUI matrix now runs 99 required GameTests.
+
+## 0.2.7-beta.2 - 2026-10-29
+
+- Hardened aggregate catalog refresh and upload paths after a full PR review. Known provider integrations now pass a `containsLibrary` predicate so a changed catalog refreshes only providers that actually reference it; legacy tracked providers without a predicate keep a correctness-first fallback.
+- Replacing an existing shared aggregate catalog from a client recipe-viewer scan or generator reuse now requires operator permission by default. The new common-config option `sharedCatalogRefreshPermissionLevel` defaults to `2`; `0` allows every player, and the singleplayer host is always allowed.
+- Added shared upload byte budgets (32 MiB buffered per upload session, 20 kB of recipe data per page), client-side preflight, one concurrent upload per player, and explicit server rejection payloads with localized client messages. Clients and servers must be updated together: the aggregate network protocol is now `4`.
+- JEI and EMI/TMRV scans now use a bounded FIFO upload queue, mutually exclude each other while an upload is active, release their busy flags reliably, and reset on logout.
+- Cached-empty aggregate expansions are no longer treated as publishable children, and provider health probes tolerate per-catalog expansion failures.
+- PackagedDraconic fusion injection now verifies that the rebuilt fusion output still matches the saved primary output before accepting a package.
+- CI now verifies the exact required GameTest count from source instead of accepting any non-zero count. The Forge no-GUI matrix runs 97 required GameTests.
+
 ## 0.2.7-beta.1 - 2026-10-09
 
 - Fix Issue #23: AE2 UELM 15.5.5 widens crafting-confirmation amounts from int to long. Delegate order retention to AE2 and preserve the full missing-material report when routing settings trigger a recalculation. Synchronize the menu change across both Minecraft versions.

@@ -5,6 +5,7 @@ import io.github.langqi99.aeallpattern.recipe.RecipeIndexService;
 import io.github.langqi99.aeallpattern.registry.ModDataComponents;
 import io.github.langqi99.aeallpattern.registry.ModItems;
 import io.github.langqi99.aeallpattern.network.AggregateMetadataSyncService;
+import io.github.langqi99.aeallpattern.network.AggregateCatalogAuthority;
 import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -81,10 +82,20 @@ public final class AllPatternGeneratorItem extends Item {
                 .toList();
         var catalystId = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(
                 level.getBlockState(pos).getBlock());
-        var library = AggregatePatternLibrary.get(level.getServer());
+        // Server-native adapters are trusted, but reusing an existing shared catalog UUID
+        // still affects every provider that already references it. Require the same
+        // authority as a client viewer refresh unless this is a brand-new catalyst.
+        boolean replacesExisting = AggregatePatternLibrary.get(level.getServer()).entries().stream()
+                .anyMatch(entry -> entry.batchCount() == 1 && entry.catalystId().equals(catalystId));
+        if (replacesExisting && player instanceof net.minecraft.server.level.ServerPlayer serverPlayer
+                && !AggregateCatalogAuthority.canReplaceSharedCatalog(serverPlayer)) {
+            show(player, "message.aeallpattern.generator.upload_unauthorized");
+            return InteractionResult.FAIL;
+        }
         ItemStack aggregate = new ItemStack(ModItems.AGGREGATE_PATTERN.get());
         String machineTranslationKey = target.getBlockState().getBlock().getDescriptionId();
-        var ref = library.put(level.getServer(), catalystId, machineTranslationKey, recipes);
+        var ref = AggregateCatalogMutationService.put(
+                level.getServer(), catalystId, machineTranslationKey, recipes);
         ModDataComponents.setAggregatePattern(aggregate, ref);
         AggregateMetadataSyncService.sendToOnlinePlayers(level.getServer());
         if (!player.addItem(aggregate)) {

@@ -23,6 +23,8 @@ public final class BindingSavedData extends SavedData {
     private static final String UNMIGRATED_TAG = "UnmigratedBindings";
 
     private final Map<UUID, BindingRecord> bindings = new LinkedHashMap<>();
+    // Server-session change signal; not stored in the world save.
+    private long mutationRevision;
     private final List<CompoundTag> unmigrated = new ArrayList<>();
 
     public static BindingSavedData get(MinecraftServer server) {
@@ -41,6 +43,11 @@ public final class BindingSavedData extends SavedData {
                 .toList();
     }
 
+    /** Revision used to avoid publishing stale in-flight linker routes. */
+    public long mutationRevision() {
+        return mutationRevision;
+    }
+
     public Optional<BindingRecord> find(UUID bindingId) {
         return Optional.ofNullable(bindings.get(bindingId));
     }
@@ -51,11 +58,13 @@ public final class BindingSavedData extends SavedData {
 
     public void put(BindingRecord record) {
         bindings.put(record.bindingId(), record);
+        mutationRevision++;
         setDirty();
     }
 
     public boolean remove(UUID bindingId) {
         if (bindings.remove(bindingId) != null) {
+            mutationRevision++;
             setDirty();
             return true;
         }
@@ -67,6 +76,7 @@ public final class BindingSavedData extends SavedData {
         bindings.values().removeIf(record -> record.anchor().equals(anchor));
         int removed = before - bindings.size();
         if (removed > 0) {
+            mutationRevision++;
             setDirty();
         }
         return removed;

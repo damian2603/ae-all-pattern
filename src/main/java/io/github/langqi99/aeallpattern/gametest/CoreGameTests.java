@@ -2449,6 +2449,7 @@ public final class CoreGameTests {
                 assertValueEqual(helper, recipeList.size(), 1,
                         "ME packaging provider did not expand the aggregate package recipe");
                 IManagedGridNode node = (IManagedGridNode) provider.getClass().getMethod("getMainNode").invoke(provider);
+                setPackagingProviderMode(provider, false, true, true);
                 IPatternDetails unpackaging = assertAggregatePackageWorkflow(
                         helper, provider, node, recipe.output());
                 boolean accepted = (boolean) provider.getClass()
@@ -2478,6 +2479,15 @@ public final class CoreGameTests {
             }
             helper.succeed();
         });
+    }
+
+    private static void setPackagingProviderMode(
+            BlockEntity provider, boolean direct, boolean packaging, boolean unpackaging)
+            throws ReflectiveOperationException {
+        provider.getClass().getField("provideDirect").setBoolean(provider, direct);
+        provider.getClass().getField("providePackaging").setBoolean(provider, packaging);
+        provider.getClass().getField("provideUnpackaging").setBoolean(provider, unpackaging);
+        provider.getClass().getMethod("postPatternChange").invoke(provider);
     }
 
     private static IPatternDetails assertAggregatePackageWorkflow(
