@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.7-beta.3 - 2026-10-29
+
+- PackagedAuto's ME Packaging Provider now honors its **Direct**, **Packaging**, and **Unpackaging** mode switches for Aggregate Patterns. Direct mode uses PackagedAuto's native `DirectCraftingPatternDetails` and still dispatches machine-backed recipes through `IPackageCraftingMachine.acceptPackage`.
+- Added provider-compat GameTests for direct/packaging/unpackaging publication and direct dispatch into a PackagedExCrafting crafter. The Forge no-GUI matrix now runs 99 required GameTests.
+
 ## 0.2.7-beta.2 - 2026-10-29
 
 - Hardened aggregate catalog refresh and upload paths after a full PR review. Known provider integrations now pass a `containsLibrary` predicate so a changed catalog refreshes only providers that actually reference it; legacy tracked providers without a predicate keep a correctness-first fallback.
