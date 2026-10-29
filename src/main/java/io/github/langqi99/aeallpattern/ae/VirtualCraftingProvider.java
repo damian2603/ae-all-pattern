@@ -115,7 +115,8 @@ public final class VirtualCraftingProvider implements ICraftingProvider {
             // contract via refreshSync().
             RefreshJob job = refreshJob;
             if (job == null || job.generation != RecipeIndexService.generation()
-                    || !job.options.equals(linker.getPatternOptions())) {
+                    || !job.options.equals(linker.getPatternOptions())
+                    || !job.bindingsStillCurrent(linker)) {
                 refreshJob = new RefreshJob(linker, serverLevel);
             }
             return;
@@ -129,8 +130,12 @@ public final class VirtualCraftingProvider implements ICraftingProvider {
         if (job == null) {
             return;
         }
-        if (job.generation != RecipeIndexService.generation()) {
-            refreshJob = null;
+        if (job.generation != RecipeIndexService.generation()
+                || !job.options.equals(linker.getPatternOptions())
+                || !job.bindingsStillCurrent(linker)) {
+            // Never publish a route table built against removed or replaced bindings.
+            refreshJob = linker.getLevel() instanceof ServerLevel serverLevel
+                    ? new RefreshJob(linker, serverLevel) : null;
             return;
         }
         if (job.advance()) {
@@ -283,6 +288,7 @@ public final class VirtualCraftingProvider implements ICraftingProvider {
         private final ServerLevel linkerLevel;
         private final AggregatePatternOptions options;
         private final List<BindingRecord> bindings;
+        private long checkedBindingRevision;
         private final Map<VirtualPatternDetails, PatternRoute> rebuilt = new LinkedHashMap<>();
         private int bindingCursor;
         private boolean bindingLoaded;
@@ -294,7 +300,23 @@ public final class VirtualCraftingProvider implements ICraftingProvider {
             this.linkerLevel = linkerLevel;
             GlobalPos anchor = linker.getGlobalPos();
             this.options = linker.getPatternOptions();
-            this.bindings = BindingSavedData.get(linkerLevel.getServer()).byAnchor(anchor);
+            BindingSavedData store = BindingSavedData.get(linkerLevel.getServer());
+            this.bindings = store.byAnchor(anchor);
+            this.checkedBindingRevision = store.mutationRevision();
+        }
+
+        private boolean bindingsStillCurrent(PatternLinkerBlockEntity linker) {
+            BindingSavedData store = BindingSavedData.get(linkerLevel.getServer());
+            long current = store.mutationRevision();
+            if (current == checkedBindingRevision) {
+                return true;
+            }
+            // Changes to unrelated linkers must not restart this refresh.
+            if (!bindings.equals(store.byAnchor(linker.getGlobalPos()))) {
+                return false;
+            }
+            checkedBindingRevision = current;
+            return true;
         }
 
         private Map<VirtualPatternDetails, PatternRoute> rebuilt() {

@@ -26,6 +26,22 @@ if (providers.gradleProperty('masterful_fixture').getOrElse('false').toBoolean()
     tasks.matching { it.name == 'runGameTestServer' }.configureEach { dependsOn prepareMasterfulFixture }
 }
 
+
+// Only the PackagedAuto/Extended Crafting test profile gets a synthetic combination
+// recipe. Keep it out of release resources and out of players' real worlds.
+if (providers.gradleProperty('packaged_combination_fixture').getOrElse('false').toBoolean()) {
+    def fixtureDirectory = providers.gradleProperty('gametest_directory').getOrElse('run-gametest')
+    def prepareCombinationFixture = tasks.register('prepareCombinationFixture', Copy) {
+        from('tools/testworld/packaged-combination/datapack') {
+            into 'world/datapacks/aap_packaged_combination_test'
+        }
+        into layout.projectDirectory.dir(fixtureDirectory)
+    }
+    tasks.matching { it.name == 'runGameTestServer' }.configureEach {
+        dependsOn prepareCombinationFixture
+    }
+}
+
 repositories {
     maven {
         url = 'https://repo.expandium.net/releases'
@@ -111,6 +127,7 @@ legacyForge {
         gameTestServer {
             type = 'gameTestServer'
             systemProperty 'aeallpattern.masterfulFixture', providers.gradleProperty('masterful_fixture').getOrElse('false')
+            systemProperty 'aeallpattern.combinationFixture', providers.gradleProperty('packaged_combination_fixture').getOrElse('false')
             programArgument '--nogui'
             // Keep dependency-matrix tests away from the playable lab save. A
             // minimal run intentionally omits optional block registries and
@@ -299,6 +316,15 @@ dependencies {
         modRuntimeOnly "maven.modrinth:5JMG1gql:NtEZsGjO"
         modRuntimeOnly "maven.modrinth:ugIdhQx4:JlONTeuu"
         modRuntimeOnly "maven.modrinth:qO33ACjS:OFILEfwe"
+    }
+
+    // Optional real PackagedDraconic 1.20.1 fixture: no required compile-time
+    // dependency, but CI verifies the reflection bridge against the addon binary.
+    if (providers.gradleProperty('runtime_packaged_draconic').getOrElse('false').toBoolean()) {
+        modRuntimeOnly "maven.modrinth:2gq0ALnz:en274HWr" // CodeChicken Lib 4.4.0.509
+        modRuntimeOnly "maven.modrinth:iFDWVIFV:qFTHdrDH" // Brandon's Core 3.2.1.302
+        modRuntimeOnly "maven.modrinth:nBqivi8H:tkerHB19" // Draconic Evolution 3.1.2.604
+        modRuntimeOnly "maven.modrinth:dNduUQBR:SAApEN0n" // PackagedDraconic 3.1.2.9
     }
 
     // Mekanism factory addons are tested separately from base Mekanism so a

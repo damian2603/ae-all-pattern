@@ -81,10 +81,10 @@ public final class AllPatternGeneratorItem extends Item {
                 .toList();
         var catalystId = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(
                 level.getBlockState(pos).getBlock());
-        var library = AggregatePatternLibrary.get(level.getServer());
         ItemStack aggregate = new ItemStack(ModItems.AGGREGATE_PATTERN.get());
         String machineTranslationKey = target.getBlockState().getBlock().getDescriptionId();
-        var ref = library.put(level.getServer(), catalystId, machineTranslationKey, recipes);
+        var ref = AggregateCatalogMutationService.put(
+                level.getServer(), catalystId, machineTranslationKey, recipes);
         ModDataComponents.setAggregatePattern(aggregate, ref);
         AggregateMetadataSyncService.sendToOnlinePlayers(level.getServer());
         if (!player.addItem(aggregate)) {

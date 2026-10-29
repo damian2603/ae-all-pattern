@@ -7,6 +7,7 @@ import appeng.blockentity.crafting.IMolecularAssemblerSupportedPattern;
 import io.github.langqi99.aeallpattern.AeAllPattern;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternMarkerDetails;
 import io.github.langqi99.aeallpattern.aggregate.AggregateProviderExpansion;
+import io.github.langqi99.aeallpattern.aggregate.AggregateProviderRefreshService;
 import io.github.langqi99.aeallpattern.util.Reflect;
 import java.util.List;
 import net.minecraft.world.level.Level;
@@ -39,6 +40,15 @@ public abstract class ExtendedAeAssemblerMatrixPatternMixin {
             if (level == null || patterns == null || inventory == null) {
                 return;
             }
+            if (AggregateProviderExpansion.containsAggregate(inventory)
+                    && level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+                AggregateProviderRefreshService.track(
+                        serverLevel.getServer(), this,
+                        owner -> ((ExtendedAeAssemblerMatrixPatternMixin) owner).aeallpattern$rerunUpdatePatterns(),
+                        null,
+                        (owner, libraryId) -> AggregateProviderExpansion.containsLibrary(
+                                Reflect.field(owner, "patternInventory", InternalInventory.class), libraryId));
+            }
             patterns.removeIf(AggregatePatternMarkerDetails.class::isInstance);
             Runnable rerun = aeallpattern$rerunning ? null : this::aeallpattern$rerunUpdatePatterns;
             AggregateProviderExpansion.expandSlots(inventory, level, rerun, pattern -> {
@@ -55,7 +65,7 @@ public abstract class ExtendedAeAssemblerMatrixPatternMixin {
     private void aeallpattern$rerunUpdatePatterns() {
         aeallpattern$rerunning = true;
         try {
-            Reflect.invoke(this, "updatePatterns");
+            Reflect.invokeDeclared(this, "updatePatterns");
         } catch (ReflectiveOperationException | RuntimeException error) {
             AeAllPattern.LOGGER.debug("Could not refresh assembler-matrix patterns", error);
         } finally {

@@ -5,8 +5,14 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import io.github.langqi99.aeallpattern.recipe.RecipeSnapshot;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import io.netty.buffer.Unpooled;
 
 import net.minecraft.network.FriendlyByteBuf;
 import io.github.langqi99.aeallpattern.network.FriendlyStreamCodec;
@@ -25,6 +31,15 @@ public record AggregateRecipe(
     public static final int MAX_INPUTS = 81;
     public static final int MAX_OUTPUTS = 27;
     public static final int MAX_TOTAL_INPUT_ALTERNATIVES = Integer.MAX_VALUE;
+
+    // This is a transient optimization, not a second copy of every catalog in memory.
+    private static final long MAX_CACHED_WIRE_BYTES = 32L * 1024 * 1024;
+    private static final int MAX_CACHED_WIRE_RECIPES = 32_768;
+    private static final int MAX_CACHEABLE_RECIPE_BYTES = 20_000;
+    private static final ReferenceQueue<AggregateRecipe> ENCODED_BYTES_QUEUE = new ReferenceQueue<>();
+    private static final Map<IdentityWeakReference, CachedWireBytes> ENCODED_BYTES =
+            new LinkedHashMap<>(128, 0.75F, true);
+    private static long cachedWireBytes;
     private static final Codec<List<GenericStack>> INPUTS_CODEC = GenericStackCodec.CODEC.listOf()
             .flatXmap(inputs -> validateStacks(inputs, MAX_INPUTS, "inputs"), DataResult::success);
     private static final Codec<List<GenericStack>> OUTPUTS_CODEC = GenericStackCodec.CODEC.listOf()
@@ -162,6 +177,16 @@ public record AggregateRecipe(
     }
 
     private static void encode(FriendlyByteBuf buffer, AggregateRecipe recipe) {
+        CachedWireBytes cached = takeEncodedBytes(recipe);
+        if (cached != null && cached.reusableForEncoding() && cached.bytes() != null) {
+            // These bytes were produced by this codec and include all component/NBT data.
+            buffer.writeBytes(cached.bytes());
+            return;
+        }
+        encodeFields(buffer, recipe);
+    }
+
+    private static void encodeFields(FriendlyByteBuf buffer, AggregateRecipe recipe) {
         buffer.writeUtf(recipe.patternId(), 160);
         buffer.writeResourceLocation(recipe.recipeId());
         buffer.writeEnum(recipe.kind());
@@ -174,6 +199,7 @@ public record AggregateRecipe(
     }
 
     private static AggregateRecipe decode(FriendlyByteBuf buffer) {
+        int wireStart = buffer.readerIndex();
         String patternId = buffer.readUtf(160);
         ResourceLocation recipeId = buffer.readResourceLocation();
         AggregatePatternKind kind = buffer.readEnum(AggregatePatternKind.class);
@@ -184,10 +210,20 @@ public record AggregateRecipe(
         List<GenericStack> outputs = java.util.stream.IntStream.range(0, outputCount)
                 .mapToObj(index -> java.util.Objects.requireNonNull(GenericStack.readBuffer(buffer))).toList();
         int probabilisticOutputMask = buffer.readVarInt();
-        return new AggregateRecipe(
+        AggregateRecipe recipe = new AggregateRecipe(
                 patternId, recipeId, kind,
                 inputSlots.stream().map(AggregateInputSlot::primary).toList(),
                 inputSlots, outputs, probabilisticOutputMask, buffer.readVarInt());
+        int wireLength = buffer.readerIndex() - wireStart;
+        if (wireLength <= MAX_CACHEABLE_RECIPE_BYTES) {
+            byte[] wireBytes = new byte[wireLength];
+            buffer.getBytes(wireStart, wireBytes);
+            rememberEncodedBytes(recipe, wireBytes, false);
+        } else {
+            // Preserve the original size for validation without retaining/copying an oversized NBT payload.
+            rememberDecodedWireSize(recipe, wireLength);
+        }
+        return recipe;
     }
 
     private static int checkedCount(int count, int maximum, String name) {
@@ -198,56 +234,135 @@ public record AggregateRecipe(
     }
 
     /**
-     * Upper-bound estimate of this recipe's on-wire size (registry-friendly buffer), used to
-     * split client upload pages below the protocol packet limit regardless of recipe
-     * complexity. Deliberately conservative: it must never under-estimate.
+     * Measure the actual wire format, including AE item components and arbitrarily
+     * sized NBT. A fixed metadata allowance can underestimate modded ItemStacks,
+     * causing upload pages to exceed Forge's packet limit.
      */
     public int encodedSizeEstimate() {
-        int size = utfSize(patternId);
-        size += resourceLocationSize(recipeId);
-        size += 1; // kind enum
-        size += varIntSize(inputSlots.size());
-        for (AggregateInputSlot slot : inputSlots) {
-            size += varIntSize(slot.alternatives().size());
-            for (GenericStack stack : slot.alternatives()) {
-                size += genericStackSize(stack);
+        CachedWireBytes cached = peekEncodedBytes(this);
+        return cached != null ? cached.wireSize() : measureWireSize(this, true);
+    }
+
+    /**
+     * Returns the exact wire size and releases any cached bytes. Network decoders cache the
+     * original bytes, so server upload validation does not serialize decoded NBT a second time.
+     */
+    public int consumeEncodedSize() {
+        CachedWireBytes cached = takeEncodedBytes(this);
+        return cached != null ? cached.wireSize() : measureWireSize(this, false);
+    }
+
+    private static int measureWireSize(AggregateRecipe recipe, boolean cacheForEncoding) {
+        FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer(256));
+        try {
+            encodeFields(buffer, recipe);
+            int size = buffer.readableBytes();
+            // Do not copy huge/oversized NBT just to cache it. Such a recipe cannot fit in an
+            // upload page, so retaining its encoded bytes offers no useful benefit.
+            if (cacheForEncoding && size <= MAX_CACHEABLE_RECIPE_BYTES) {
+                byte[] encoded = new byte[size];
+                buffer.getBytes(buffer.readerIndex(), encoded);
+                rememberEncodedBytes(recipe, encoded, true);
             }
-            size += 1; // item tag presence
-            if (slot.itemTag().isPresent()) {
-                size += resourceLocationSize(slot.itemTag().orElseThrow());
+            return size;
+        } finally {
+            buffer.release();
+        }
+    }
+
+    private static synchronized CachedWireBytes peekEncodedBytes(AggregateRecipe recipe) {
+        expungeStaleEncodedBytes();
+        return ENCODED_BYTES.get(new IdentityWeakReference(recipe));
+    }
+
+    private static synchronized CachedWireBytes takeEncodedBytes(AggregateRecipe recipe) {
+        expungeStaleEncodedBytes();
+        CachedWireBytes removed = ENCODED_BYTES.remove(new IdentityWeakReference(recipe));
+        if (removed != null && removed.bytes() != null) {
+            cachedWireBytes -= removed.bytes().length;
+        }
+        return removed;
+    }
+
+    private static synchronized void rememberEncodedBytes(
+            AggregateRecipe recipe, byte[] encoded, boolean reusableForEncoding) {
+        rememberCachedWireSize(recipe, encoded, encoded.length, reusableForEncoding);
+    }
+
+    private static synchronized void rememberDecodedWireSize(AggregateRecipe recipe, int wireSize) {
+        rememberCachedWireSize(recipe, null, wireSize, false);
+    }
+
+    private static synchronized void rememberCachedWireSize(
+            AggregateRecipe recipe, byte[] encoded, int wireSize, boolean reusableForEncoding) {
+        expungeStaleEncodedBytes();
+        CachedWireBytes previous = ENCODED_BYTES.remove(new IdentityWeakReference(recipe));
+        if (previous != null && previous.bytes() != null) {
+            cachedWireBytes -= previous.bytes().length;
+        }
+        if (wireSize < 0
+                || (encoded != null && (encoded.length > MAX_CACHED_WIRE_BYTES
+                        || encoded.length > MAX_CACHEABLE_RECIPE_BYTES))) {
+            return;
+        }
+        ENCODED_BYTES.put(
+                new IdentityWeakReference(recipe, ENCODED_BYTES_QUEUE),
+                new CachedWireBytes(encoded, wireSize, reusableForEncoding));
+        if (encoded != null) {
+            cachedWireBytes += encoded.length;
+        }
+        Iterator<Map.Entry<IdentityWeakReference, CachedWireBytes>> iterator =
+                ENCODED_BYTES.entrySet().iterator();
+        while (cachedWireBytes > MAX_CACHED_WIRE_BYTES || ENCODED_BYTES.size() > MAX_CACHED_WIRE_RECIPES) {
+            Map.Entry<IdentityWeakReference, CachedWireBytes> eldest = iterator.next();
+            if (eldest.getValue().bytes() != null) {
+                cachedWireBytes -= eldest.getValue().bytes().length;
+            }
+            iterator.remove();
+        }
+    }
+
+    private static synchronized void expungeStaleEncodedBytes() {
+        IdentityWeakReference reference;
+        while ((reference = (IdentityWeakReference) ENCODED_BYTES_QUEUE.poll()) != null) {
+            CachedWireBytes removed = ENCODED_BYTES.remove(reference);
+            if (removed != null && removed.bytes() != null) {
+                cachedWireBytes -= removed.bytes().length;
             }
         }
-        size += varIntSize(outputs.size());
-        for (GenericStack stack : outputs) {
-            size += genericStackSize(stack);
+    }
+
+    private record CachedWireBytes(byte[] bytes, int wireSize, boolean reusableForEncoding) {
+    }
+
+    private static final class IdentityWeakReference extends WeakReference<AggregateRecipe> {
+        private final int identityHash;
+
+        private IdentityWeakReference(AggregateRecipe recipe) {
+            super(recipe);
+            identityHash = System.identityHashCode(recipe);
         }
-        size += varIntSize(probabilisticOutputMask);
-        size += varIntSize(processingTicks);
-        return size;
-    }
 
-    private static int utfSize(String text) {
-        return varIntSize(text.length()) + text.length();
-    }
-
-    private static int resourceLocationSize(ResourceLocation id) {
-        return utfSize(id.getNamespace()) + utfSize(id.getPath());
-    }
-
-    private static int varIntSize(long value) {
-        int size = 1;
-        while (value >= 0x80) {
-            value >>>= 7;
-            size++;
+        private IdentityWeakReference(AggregateRecipe recipe, ReferenceQueue<AggregateRecipe> queue) {
+            super(recipe, queue);
+            identityHash = System.identityHashCode(recipe);
         }
-        return size;
-    }
 
-    private static int genericStackSize(GenericStack stack) {
-        appeng.api.stacks.AEKey key = stack.what();
-        // key type id + key id + a generous pad for AEItemKey components / NBT
-        // (unbounded in size) + amount varLong + count int.
-        return resourceLocationSize(key.getType().getId()) + resourceLocationSize(key.getId())
-                + 192 + varIntSize(stack.amount());
+        @Override
+        public int hashCode() {
+            return identityHash;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (!(other instanceof IdentityWeakReference reference)) {
+                return false;
+            }
+            AggregateRecipe recipe = get();
+            return recipe != null && recipe == reference.get();
+        }
     }
 }

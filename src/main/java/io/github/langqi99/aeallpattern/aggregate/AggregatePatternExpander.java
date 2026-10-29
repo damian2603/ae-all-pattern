@@ -90,7 +90,9 @@ public final class AggregatePatternExpander {
     }
 
     /** Key for the per-child cache: the caller's virtual id prefix plus the recipe identity. */
-    private record RecipeCacheKey(String prefix, String patternId, int optionsFlags, long generation) {
+    private record RecipeCacheKey(
+            String prefix, String patternId, int recipeContentHash,
+            int optionsFlags, long generation) {
     }
 
     /** Resolved inputs of one expansion request, shared by both paths. */
@@ -134,6 +136,66 @@ public final class AggregatePatternExpander {
         RECIPE_EXPANSION_CACHE.clear();
     }
 
+    /**
+     * A single machine catalog was replaced. Preserve cached pattern lists and
+     * in-flight expansion jobs of every unrelated machine. Globally clearing
+     * those on every generator click made large AdvancedAE/ExtendedAE providers
+     * temporarily publish zero recipes while their async scan restarted.
+     */
+    public static void invalidateLibrary(MinecraftServer server, UUID libraryId) {
+        invalidateLibrary(server, libraryId, List.of());
+    }
+
+    /**
+     * Also evict children removed from the previous revision. Processing
+     * packages use their own aggregate-package: namespace, while normal AE
+     * virtual children use aggregate:. Both must observe edited recipe data.
+     */
+    public static void invalidateLibrary(
+            MinecraftServer server, UUID libraryId, List<AggregateRecipe> previousRecipes) {
+        var cached = EXPANSION_CACHE.get(server);
+        if (cached != null) {
+            cached.keySet().removeIf(key -> key.libraryId().equals(libraryId));
+        }
+
+        // Per-child virtual pattern details are cached separately. Evict only
+        // recipe identities belonging to the updated catalog.
+        var childCache = RECIPE_EXPANSION_CACHE.get(server);
+        if (childCache != null) {
+            java.util.Set<String> recipeIds = new java.util.HashSet<>();
+            previousRecipes.forEach(recipe -> recipeIds.add(recipe.patternId()));
+            AggregatePatternLibrary.get(server).recipes(server, libraryId)
+                    .orElse(List.of()).forEach(recipe -> recipeIds.add(recipe.patternId()));
+            java.util.Set<String> prefixes = new java.util.HashSet<>(recipeIds.size() * 2);
+            for (String recipeId : recipeIds) {
+                prefixes.add("aggregate:" + recipeId);
+                prefixes.add("aggregate-package:" + recipeId);
+            }
+            childCache.keySet().removeIf(key -> {
+                String prefix = key.prefix();
+                int selectionSuffix = prefix.lastIndexOf(":sel=");
+                String base = selectionSuffix < 0 ? prefix : prefix.substring(0, selectionSuffix);
+                return prefixes.contains(base);
+            });
+        }
+
+        List<Runnable> callbacks = new ArrayList<>();
+        List<PendingExpansion> jobs = PENDING.get(server);
+        if (jobs != null) {
+            java.util.Iterator<PendingExpansion> iterator = jobs.iterator();
+            while (iterator.hasNext()) {
+                PendingExpansion job = iterator.next();
+                if (job.key.libraryId().equals(libraryId)) {
+                    callbacks.addAll(job.completionCallbacks);
+                    iterator.remove();
+                }
+            }
+        }
+        // Restart only interrupted hosts through their existing completion
+        // callbacks; unrelated async jobs keep their progress and callbacks.
+        runCompletions(callbacks);
+    }
+
     /** GameTest hook: forces the scheduled path to complete synchronously. */
     public static void setSynchronous(boolean value) {
         synchronousMode = value;
@@ -141,6 +203,12 @@ public final class AggregatePatternExpander {
 
     public static boolean isSynchronous() {
         return synchronousMode;
+    }
+
+    /** Do not treat a partially built asynchronous catalog as missing from AE2. */
+    public static boolean isPending(MinecraftServer server, UUID libraryId) {
+        List<PendingExpansion> jobs = PENDING.get(server);
+        return jobs != null && jobs.stream().anyMatch(job -> job.key.libraryId().equals(libraryId));
     }
 
     private static ExpansionContext resolveContext(ItemStack aggregateStack, Level level) {
@@ -367,7 +435,8 @@ public final class AggregatePatternExpander {
                     }
                 });
         RecipeCacheKey key = new RecipeCacheKey(
-                virtualIdPrefix, recipe.patternId(), options.flags(), RecipeIndexService.generation());
+                virtualIdPrefix, recipe.patternId(), recipe.hashCode(),
+                options.flags(), RecipeIndexService.generation());
         IPatternDetails cached = cache.get(key);
         if (cached != null) {
             return cached;

@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.server.level.ServerLevel;
 
 /**
  * Shared helper for addon pattern providers that build their published list by calling
@@ -23,6 +24,68 @@ import net.minecraft.world.level.Level;
  */
 public final class AggregateProviderExpansion {
     private AggregateProviderExpansion() {
+    }
+
+    /** Avoid tracking plain addon providers; only aggregate hosts need startup recovery. */
+    public static boolean containsAggregate(InternalInventory inventory) {
+        if (inventory == null) {
+            return false;
+        }
+        for (int slot = 0; slot < inventory.size(); slot++) {
+            if (ModDataComponents.hasAggregatePattern(inventory.getStackInSlot(slot))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Library-specific selection for targeted catalog updates. A newly generated
+     * unrelated aggregate must never rebuild already-indexed ME providers.
+     */
+    public static boolean containsLibrary(InternalInventory inventory, java.util.UUID libraryId) {
+        if (inventory == null || libraryId == null) {
+            return false;
+        }
+        for (int slot = 0; slot < inventory.size(); slot++) {
+            ItemStack stack = inventory.getStackInSlot(slot);
+            if (!stack.isEmpty() && ModDataComponents.hasAggregatePattern(stack)) {
+                AggregatePatternRef ref = ModDataComponents.getAggregatePattern(stack);
+                if (ref != null && libraryId.equals(ref.libraryId())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Cheap metadata-only check for a provider that should have at least one
+     * published aggregate child. Fully disabled catalogs are legitimately empty.
+     */
+    public static boolean expectsPublishedChildren(InternalInventory inventory, Level level) {
+        if (inventory == null || !(level instanceof ServerLevel serverLevel)) {
+            return false;
+        }
+        for (int slot = 0; slot < inventory.size(); slot++) {
+            ItemStack stack = inventory.getStackInSlot(slot);
+            if (stack.isEmpty() || !ModDataComponents.hasAggregatePattern(stack)) {
+                continue;
+            }
+            var selection = ModDataComponents.getAggregatePatternSelection(stack);
+            if (selection != null && selection.isNoneEnabled()) {
+                continue;
+            }
+            var ref = ModDataComponents.getAggregatePattern(stack);
+            if (ref != null && AggregatePatternExpander.isPending(serverLevel.getServer(), ref.libraryId())) {
+                continue;
+            }
+            if (ref != null && AggregatePatternLibrary.get(serverLevel.getServer())
+                    .find(ref.libraryId()).map(entry -> entry.recipeCount() > 0).orElse(false)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

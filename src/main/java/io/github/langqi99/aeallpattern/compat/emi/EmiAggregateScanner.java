@@ -11,7 +11,6 @@ import io.github.langqi99.aeallpattern.AeAllPattern;
 import io.github.langqi99.aeallpattern.client.ClientRecipeMachineResolver;
 import io.github.langqi99.aeallpattern.client.ClientJeiAggregateScanner;
 import io.github.langqi99.aeallpattern.recipe.RecipeFingerprint;
-import io.netty.buffer.Unpooled;
 import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -19,8 +18,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.*;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.network.FriendlyByteBuf;
-import io.github.langqi99.aeallpattern.network.FriendlyStreamCodec;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.*;
@@ -171,10 +168,13 @@ public final class EmiAggregateScanner {
     }
 
     private static boolean canEncode(AggregateRecipe recipe) {
-        FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
-        try { AggregateRecipe.STREAM_CODEC.encode(buffer, recipe); return true; }
-        catch (RuntimeException ignored) { return false; }
-        finally { buffer.release(); }
+        try {
+            // Measure and cache once; the shared page builder and network encoder reuse these bytes.
+            recipe.encodedSizeEstimate();
+            return true;
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     private static boolean isCraftingMachine(ItemStack machine, EmiRecipeCategory category) {

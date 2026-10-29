@@ -10,6 +10,7 @@ import io.github.langqi99.aeallpattern.AeAllPattern;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternKind;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternLibrary;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternOptions;
+import io.github.langqi99.aeallpattern.aggregate.AggregateProviderRefreshService;
 import io.github.langqi99.aeallpattern.aggregate.AggregateRecipe;
 import io.github.langqi99.aeallpattern.binding.BindingSavedData;
 import io.github.langqi99.aeallpattern.linker.PatternLinkerBlockEntity;
@@ -66,6 +67,9 @@ public final class ModCommands {
                                 .executes(context -> verifyEcoShowcasePattern(
                                         context.getSource(),
                                         BlockPosArgument.getLoadedBlockPos(context, "pattern_bus")))))
+                .then(Commands.literal("refresh")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(context -> refreshProviders(context.getSource())))
                 .then(Commands.literal("perf")
                         .requires(source -> source.hasPermission(2))
                         .executes(context -> perf(context.getSource()))));
@@ -79,6 +83,14 @@ public final class ModCommands {
         source.sendSuccess(() -> Component.literal(
                 "AE All Pattern: bindings=" + visible + ", recipeGeneration=" + RecipeIndexService.generation()), false);
         return (int) visible;
+    }
+
+    /** One-time recovery/diagnostics; does not repeatedly rebuild AE2's crafting index. */
+    private static int refreshProviders(CommandSourceStack source) {
+        AggregateProviderRefreshService.requestRefresh(source.getServer());
+        source.sendSuccess(() -> Component.literal(
+                "AE All Pattern: scheduled a refresh of loaded pattern providers"), false);
+        return 1;
     }
 
     private static int perf(CommandSourceStack source) {

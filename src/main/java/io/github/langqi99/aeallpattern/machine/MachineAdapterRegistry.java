@@ -23,6 +23,10 @@ public final class MachineAdapterRegistry {
         if (ModList.get().isLoaded("packagedexcrafting") || ModList.get().isLoaded("packagedavaritia")) {
             register(new PackagedCraftingAdapter());
         }
+        if (ModList.get().isLoaded("packageddraconic")
+                && ModList.get().isLoaded("draconicevolution")) {
+            register(new PackagedDraconicAdapter());
+        }
     }
 
     private MachineAdapterRegistry() {

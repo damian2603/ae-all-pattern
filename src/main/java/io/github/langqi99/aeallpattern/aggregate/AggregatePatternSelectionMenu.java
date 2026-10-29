@@ -173,13 +173,14 @@ public final class AggregatePatternSelectionMenu extends AbstractContainerMenu {
         List<AggregateRecipe> recipes = AggregatePatternLibrary.get(player.server)
                 .recipes(player.server, ref.libraryId())
                 .orElseGet(List::of);
-        // Search runs over the complete recipe list with no cap: the user wants to search
-        // every stored pattern, not just the initially synced subset.
-        List<AggregateRecipe> filteredRecipes = AggregatePatternSearch.filterRecipes(
-                recipes, searchText, searchMode, Integer.MAX_VALUE);
-        int resultPageCount = pageCount(filteredRecipes.size());
-        int resultPageIndex = io.github.langqi99.aeallpattern.util.CompatMath.clamp(requestedPageIndex, 0, resultPageCount - 1);
-        List<Entry> filtered = entriesFromRecipes(filteredRecipes, resultPageIndex);
+        // Count matches over the full catalog, but keep only the requested UI
+        // page in memory instead of allocating a list for every matching recipe.
+        var page = AggregatePatternSearch.searchPage(
+                recipes, searchText, searchMode, requestedPageIndex, uiPageSize(),
+                selection::isEnabled);
+        int resultPageCount = pageCount(page.totalMatches());
+        int resultPageIndex = page.pageIndex();
+        List<Entry> filtered = entriesFromRecipes(page.recipes());
         List<Boolean> enabledStates = filtered.stream()
                 .map(entry -> selection.isEnabled(entry.patternId()))
                 .toList();
@@ -188,10 +189,8 @@ public final class AggregatePatternSelectionMenu extends AbstractContainerMenu {
         this.filteredView = !searchText.isBlank();
         this.currentSearchText = searchText;
         this.currentSearchMode = searchMode;
-        this.totalEntryCount = filteredRecipes.size();
-        this.selectedEntryCount = (int) filteredRecipes.stream()
-                .filter(recipe -> selection.isEnabled(recipe.patternId()))
-                .count();
+        this.totalEntryCount = page.totalMatches();
+        this.selectedEntryCount = page.selectedMatches();
         int chunkCount = Math.max(1, (filtered.size() + AggregateSearchResultPayload.MAX_ENTRIES_PER_PAGE - 1)
                 / AggregateSearchResultPayload.MAX_ENTRIES_PER_PAGE);
         for (int chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {

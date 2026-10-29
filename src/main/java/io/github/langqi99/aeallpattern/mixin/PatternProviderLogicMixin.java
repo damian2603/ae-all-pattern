@@ -2,6 +2,7 @@ package io.github.langqi99.aeallpattern.mixin;
 
 import appeng.api.crafting.IPatternDetails;
 import appeng.api.crafting.PatternDetailsHelper;
+import appeng.api.networking.IGrid;
 import appeng.api.networking.IManagedGridNode;
 import appeng.api.networking.crafting.ICraftingProvider;
 import appeng.api.stacks.AEKey;
@@ -11,6 +12,8 @@ import appeng.util.inv.AppEngInternalInventory;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternExpander;
 import io.github.langqi99.aeallpattern.aggregate.AggregatePatternMarkerDetails;
 import io.github.langqi99.aeallpattern.aggregate.AggregateProviderRefreshService;
+import io.github.langqi99.aeallpattern.aggregate.AggregateCraftingIndexProbe;
+import io.github.langqi99.aeallpattern.aggregate.AggregateProviderExpansion;
 import io.github.langqi99.aeallpattern.compat.TechStartPatternCompat;
 import java.util.List;
 import java.util.Set;
@@ -49,17 +52,40 @@ public abstract class PatternProviderLogicMixin {
     @org.spongepowered.asm.mixin.Unique
     private List<IPatternDetails> aeallpattern$lastPublished = List.of();
 
+    @org.spongepowered.asm.mixin.Unique private IGrid aeallpattern$lastGrid;
+    @org.spongepowered.asm.mixin.Unique private boolean aeallpattern$lastActive;
+    @org.spongepowered.asm.mixin.Unique private boolean aeallpattern$forcePublish;
+
+    /** Re-publishes after rescanning a catalog even when child patterns have identical identities. */
+    @org.spongepowered.asm.mixin.Unique
+    private void aeallpattern$refreshCatalog() {
+        aeallpattern$forcePublish = true;
+        try {
+            aeallpattern$rerunUpdatePatterns();
+        } finally {
+            aeallpattern$forcePublish = false;
+        }
+    }
+
     @Inject(method = "updatePatterns", at = @At("HEAD"), cancellable = true)
     private void aeallpattern$expandAggregatePatterns(CallbackInfo callback) {
         var blockEntity = host.getBlockEntity();
-        if (blockEntity.getLevel() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+        if (AggregateProviderExpansion.containsAggregate(patternInventory)
+                && blockEntity.getLevel() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
             AggregateProviderRefreshService.track(
                     serverLevel.getServer(), this,
-                    owner -> ((PatternProviderLogicMixin) owner).aeallpattern$rerunUpdatePatterns());
+                    owner -> ((PatternProviderLogicMixin) owner).aeallpattern$refreshCatalog(),
+                    owner -> {
+                        PatternProviderLogicMixin logic = (PatternProviderLogicMixin) owner;
+                        return AggregateCraftingIndexProbe.isIndexed(logic.mainNode, logic.patterns,
+                                AggregateProviderExpansion.expectsPublishedChildren(
+                                        logic.patternInventory, logic.host.getBlockEntity().getLevel()));
+                    },
+                    (owner, libraryId) -> AggregateProviderExpansion.containsLibrary(
+                            ((PatternProviderLogicMixin) owner).patternInventory, libraryId));
         }
         patterns.clear();
         patternInputs.clear();
-        patterns.removeIf(AggregatePatternMarkerDetails.class::isInstance);
         var level = blockEntity.getLevel();
         if (level != null) {
             for (var stack : patternInventory) {
@@ -95,8 +121,13 @@ public abstract class PatternProviderLogicMixin {
         // Skip the network refresh when nothing actually changed: with an 18k-pattern aggregate
         // every unconditional requestUpdate forces AE2 to rebuild its whole crafting index on
         // the next terminal open, which is the reported lag. Only publish on real changes.
-        if (!aeallpattern$lastPublished.equals(patterns)) {
+        IGrid grid = mainNode.getGrid();
+        boolean active = mainNode.isActive();
+        if (aeallpattern$forcePublish || !aeallpattern$lastPublished.equals(patterns)
+                || aeallpattern$lastGrid != grid || aeallpattern$lastActive != active) {
             aeallpattern$lastPublished = List.copyOf(patterns);
+            aeallpattern$lastGrid = grid;
+            aeallpattern$lastActive = active;
             ICraftingProvider.requestUpdate(mainNode);
         }
         callback.cancel();
