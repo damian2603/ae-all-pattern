@@ -120,6 +120,12 @@ public final class PackagedCombinationGameTests {
                 helper.assertTrue(core.is(Items.DIAMOND) && pedestals.size() == 2,
                         "Native combination package lost the core or pedestal inputs");
 
+                // This regression checks the package/unpackage dispatch path, so select
+                // that provider mode explicitly instead of relying on the old override.
+                provider.getClass().getField("provideDirect").setBoolean(provider, false);
+                provider.getClass().getField("providePackaging").setBoolean(provider, true);
+                provider.getClass().getField("provideUnpackaging").setBoolean(provider, true);
+                provider.getClass().getMethod("postPatternChange").invoke(provider);
                 @SuppressWarnings("unchecked")
                 List<IPatternDetails> patterns = (List<IPatternDetails>) provider.getClass()
                         .getMethod("getAvailablePatterns").invoke(provider);

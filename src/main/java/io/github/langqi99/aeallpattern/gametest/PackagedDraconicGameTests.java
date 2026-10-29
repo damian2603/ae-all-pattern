@@ -145,6 +145,12 @@ public final class PackagedDraconicGameTests {
                         var mainNode = (appeng.api.networking.IManagedGridNode)
                                 provider.getClass().getMethod("getMainNode").invoke(provider);
                         helper.assertTrue(mainNode.isActive(), "ME Packaging Provider not powered");
+                        // The fusion dispatch regression intentionally uses the unpackaging
+                        // pattern; Direct mode is covered by PackagedDirectModeGameTests.
+                        provider.getClass().getField("provideDirect").setBoolean(provider, false);
+                        provider.getClass().getField("providePackaging").setBoolean(provider, true);
+                        provider.getClass().getField("provideUnpackaging").setBoolean(provider, true);
+                        provider.getClass().getMethod("postPatternChange").invoke(provider);
                         @SuppressWarnings("unchecked")
                         var patterns = (java.util.List<appeng.api.crafting.IPatternDetails>)
                                 provider.getClass().getMethod("getAvailablePatterns").invoke(provider);
