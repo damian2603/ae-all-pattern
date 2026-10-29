@@ -11,6 +11,7 @@ public final class AeAllPatternCommonConfig {
     public static final ForgeConfigSpec.IntValue SELECTION_DISPLAY_LIMIT;
     public static final ForgeConfigSpec.IntValue AGGREGATE_RECIPE_LIMIT;
     public static final ForgeConfigSpec.IntValue TAG_EXPANSION_LIMIT;
+    public static final ForgeConfigSpec.IntValue SHARED_CATALOG_REFRESH_PERMISSION_LEVEL;
 
     static {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
@@ -38,6 +39,11 @@ public final class AeAllPatternCommonConfig {
         TAG_EXPANSION_LIMIT = builder
                 .comment("Maximum number of item alternatives expanded from one recipe ingredient tag.")
                 .defineInRange("tagExpansionLimit", 1024, 1, Integer.MAX_VALUE);
+        SHARED_CATALOG_REFRESH_PERMISSION_LEVEL = builder
+                .comment("Permission level required to replace an existing shared aggregate catalog "
+                        + "from a client recipe-viewer scan or generator reuse. 0 allows every player, "
+                        + "2 requires operator status. The singleplayer host is always allowed.")
+                .defineInRange("sharedCatalogRefreshPermissionLevel", 2, 0, 4);
         builder.pop();
         SPEC = builder.build();
     }

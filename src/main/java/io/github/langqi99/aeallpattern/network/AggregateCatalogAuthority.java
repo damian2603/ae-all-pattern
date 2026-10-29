@@ -1,5 +1,6 @@
 package io.github.langqi99.aeallpattern.network;
 
+import io.github.langqi99.aeallpattern.config.AeAllPatternCommonConfig;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
@@ -15,7 +16,8 @@ public final class AggregateCatalogAuthority {
     }
 
     public static boolean canReplaceSharedCatalog(ServerPlayer player) {
-        return player.hasPermissions(2)
+        int required = AeAllPatternCommonConfig.SHARED_CATALOG_REFRESH_PERMISSION_LEVEL.get();
+        return player.hasPermissions(required)
                 || player.getServer().isSingleplayerOwner(player.getGameProfile());
     }
 }

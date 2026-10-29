@@ -37,7 +37,7 @@ jobs:
               -Pruntime_mekanism=false -Pruntime_create=false \
               -Pruntime_industrial_foregoing=false -Pruntime_mystical_agriculture=false
             # The dev launcher can exit zero on a loading crash: require actual test markers.
-            grep -E 'All [0-9]+ required tests passed' run-gametest-providers/logs/latest.log
+            python3 tools/verify_gametest_count.py run-gametest-providers/logs/latest.log
             grep -F "ECO_RESTART_${phase}_PASSED" run-gametest-providers/logs/latest.log
             grep -F "VANILLA_ASYNC_RESTART_${phase}_PASSED" run-gametest-providers/logs/latest.log
             if [ '${{ matrix.alloy }}' = true ]; then
