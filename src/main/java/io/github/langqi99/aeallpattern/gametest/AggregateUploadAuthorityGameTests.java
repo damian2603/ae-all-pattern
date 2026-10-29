@@ -42,6 +42,7 @@ public final class AggregateUploadAuthorityGameTests {
                 List.of(new GenericStack(AEItemKey.of(Items.OAK_PLANKS), 4)), 1);
         var original = AggregateCatalogMutationService.put(
                 server, machine, "block.minecraft.crafting_table", List.of(recipe));
+        var originalEntry = AggregatePatternLibrary.get(server).find(original.libraryId()).orElseThrow();
         helper.assertTrue(!AggregateCatalogAuthority.canReplaceSharedCatalog(player),
                 "Mock multiplayer player unexpectedly has operator authority");
 
@@ -51,7 +52,7 @@ public final class AggregateUploadAuthorityGameTests {
         AggregateGenerationService.handle(payload, player);
 
         var after = AggregatePatternLibrary.get(server).find(original.libraryId()).orElseThrow();
-        helper.assertTrue(after.contentHash().equals(original.contentHash()),
+        helper.assertTrue(after.contentHash().equals(originalEntry.contentHash()),
                 "Non-operator client replaced a shared aggregate catalog");
         helper.succeed();
     }
