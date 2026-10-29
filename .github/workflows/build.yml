@@ -18,9 +18,6 @@ jobs:
     name: Unit tests and release JAR
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -47,22 +44,6 @@ jobs:
           name: ae-all-pattern-${{ github.sha }}
           path: build/libs/*.jar
           if-no-files-found: error
-      - name: Publish release JAR as a retrievable Git blob
-        if: success() && github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          jar=$(find build/libs -maxdepth 1 -name '*.jar' | sort | head -1)
-          python3 - "$jar" <<'PY'
-          import base64, json, sys
-          data = open(sys.argv[1], 'rb').read()
-          with open('jar-blob.json', 'w', encoding='utf-8') as out:
-              json.dump({'content': base64.b64encode(data).decode('ascii'), 'encoding': 'base64'}, out)
-          PY
-          sha=$(gh api "repos/${{ github.repository }}/git/blobs" --input jar-blob.json --jq .sha)
-          printf 'Release JAR Git blob: `%s`\nFile: `%s`\n' "$sha" "$(basename "$jar")" > jar-blob-comment.md
-          gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file jar-blob-comment.md
       - name: Upload failure reports
         if: failure()
         uses: actions/upload-artifact@v4
@@ -78,9 +59,6 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: read
-      pull-requests: write
     strategy:
       fail-fast: false
       matrix:
@@ -107,21 +85,6 @@ jobs:
       - run: pip install minecraft-launcher-lib==8.0
       - name: Launch packaged mod in production Forge
         run: xvfb-run --auto-servernum python tools/production_client_smoke.py --jar release-jars/aeallpattern-*.jar --directory production-client ${{ matrix.arguments }}
-      - name: Surface production client failure on the draft PR
-        if: failure() && github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          {
-            echo "### Production client failure: ${{ matrix.name }}"
-            echo '```'
-            tail -160 production-client/production-console.log || true
-            echo '--- latest.log ---'
-            tail -120 production-client/logs/latest.log || true
-            echo '```'
-          } > production-failure-comment.md
-          gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file production-failure-comment.md
       - name: Upload production logs
         if: always()
         uses: actions/upload-artifact@v4
