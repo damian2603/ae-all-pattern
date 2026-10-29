@@ -18,6 +18,9 @@ jobs:
     name: Unit tests and release JAR
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -38,6 +41,19 @@ jobs:
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           fi
           exit "$status"
+      - name: Surface build failure details on the draft PR
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          {
+            echo '### CI build failure details'
+            echo '```'
+            tail -200 build-ci.log
+            echo '```'
+          } > build-failure-comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file build-failure-comment.md
       - name: Upload release JAR
         uses: actions/upload-artifact@v4
         with:
