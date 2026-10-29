@@ -50,7 +50,9 @@ jobs:
           {
             echo '### CI build failure details'
             echo '```'
-            tail -200 build-ci.log
+            grep -n -B 3 -A 8 'error:' build-ci.log | head -160 || true
+            echo '--- tail ---'
+            tail -60 build-ci.log
             echo '```'
           } > build-failure-comment.md
           gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file build-failure-comment.md
