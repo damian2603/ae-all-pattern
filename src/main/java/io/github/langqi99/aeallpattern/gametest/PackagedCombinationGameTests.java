@@ -120,6 +120,12 @@ public final class PackagedCombinationGameTests {
                 helper.assertTrue(core.is(Items.DIAMOND) && pedestals.size() == 2,
                         "Native combination package lost the core or pedestal inputs");
 
+                // This regression verifies delivery of the native combination package.
+                // Do not rely on PackagedAuto's default Direct mode when testing unpackaging.
+                provider.getClass().getField("provideDirect").setBoolean(provider, false);
+                provider.getClass().getField("providePackaging").setBoolean(provider, false);
+                provider.getClass().getField("provideUnpackaging").setBoolean(provider, true);
+                provider.getClass().getMethod("postPatternChange").invoke(provider);
                 @SuppressWarnings("unchecked")
                 List<IPatternDetails> patterns = (List<IPatternDetails>) provider.getClass()
                         .getMethod("getAvailablePatterns").invoke(provider);
