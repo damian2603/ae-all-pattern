@@ -151,11 +151,19 @@ public final class AggregateGeneratorIsolationGameTests {
         // silently miss targeted catalog updates just because they lack a library predicate.
         AggregateProviderRefreshService.track(server, legacyProvider,
                 owner -> refreshes.incrementAndGet());
+        ResourceLocation machine = uniqueMachine();
         AggregateCatalogMutationService.put(
-                server, uniqueMachine(), "block.minecraft.crafting_table", testRecipes("legacy-host"));
+                server, machine, "block.minecraft.crafting_table", testRecipes("legacy-initial"));
+        AggregateProviderRefreshService.tickServer(server);
+        int baseline = refreshes.get();
+        // A brand-new catalog cannot be referenced by an existing provider, so the mutation
+        // service intentionally does not request a targeted refresh. Regenerating an existing
+        // catalog is the path that must reach legacy hosts without a library predicate.
+        AggregateCatalogMutationService.put(
+                server, machine, "block.minecraft.crafting_table", testRecipes("legacy-updated"));
         AggregateProviderRefreshService.tickServer(server);
         helper.assertTrue(legacyProvider != null, "Legacy provider fixture was lost");
-        helper.assertTrue(refreshes.get() == 1,
+        helper.assertTrue(refreshes.get() == baseline + 1,
                 "Legacy provider without containsLibrary missed a catalog mutation");
         helper.succeed();
     }
