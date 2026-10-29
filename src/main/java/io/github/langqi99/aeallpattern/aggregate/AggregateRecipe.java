@@ -178,7 +178,7 @@ public record AggregateRecipe(
 
     private static void encode(FriendlyByteBuf buffer, AggregateRecipe recipe) {
         CachedWireBytes cached = takeEncodedBytes(recipe);
-        if (cached != null && cached.reusableForEncoding()) {
+        if (cached != null && cached.reusableForEncoding() && cached.bytes() != null) {
             // These bytes were produced by this codec and include all component/NBT data.
             buffer.writeBytes(cached.bytes());
             return;
@@ -215,9 +215,14 @@ public record AggregateRecipe(
                 inputSlots.stream().map(AggregateInputSlot::primary).toList(),
                 inputSlots, outputs, probabilisticOutputMask, buffer.readVarInt());
         int wireLength = buffer.readerIndex() - wireStart;
-        byte[] wireBytes = new byte[wireLength];
-        buffer.getBytes(wireStart, wireBytes);
-        rememberEncodedBytes(recipe, wireBytes, false);
+        if (wireLength <= MAX_CACHEABLE_RECIPE_BYTES) {
+            byte[] wireBytes = new byte[wireLength];
+            buffer.getBytes(wireStart, wireBytes);
+            rememberEncodedBytes(recipe, wireBytes, false);
+        } else {
+            // Preserve the original size for validation without retaining/copying an oversized NBT payload.
+            rememberDecodedWireSize(recipe, wireLength);
+        }
         return recipe;
     }
 
@@ -235,7 +240,7 @@ public record AggregateRecipe(
      */
     public int encodedSizeEstimate() {
         CachedWireBytes cached = peekEncodedBytes(this);
-        return cached != null ? cached.bytes().length : measureWireSize(this, true);
+        return cached != null ? cached.wireSize() : measureWireSize(this, true);
     }
 
     /**
@@ -244,7 +249,7 @@ public record AggregateRecipe(
      */
     public int consumeEncodedSize() {
         CachedWireBytes cached = takeEncodedBytes(this);
-        return cached != null ? cached.bytes().length : measureWireSize(this, false);
+        return cached != null ? cached.wireSize() : measureWireSize(this, false);
     }
 
     private static int measureWireSize(AggregateRecipe recipe, boolean cacheForEncoding) {
@@ -273,7 +278,7 @@ public record AggregateRecipe(
     private static synchronized CachedWireBytes takeEncodedBytes(AggregateRecipe recipe) {
         expungeStaleEncodedBytes();
         CachedWireBytes removed = ENCODED_BYTES.remove(new IdentityWeakReference(recipe));
-        if (removed != null) {
+        if (removed != null && removed.bytes() != null) {
             cachedWireBytes -= removed.bytes().length;
         }
         return removed;
@@ -281,23 +286,38 @@ public record AggregateRecipe(
 
     private static synchronized void rememberEncodedBytes(
             AggregateRecipe recipe, byte[] encoded, boolean reusableForEncoding) {
+        rememberCachedWireSize(recipe, encoded, encoded.length, reusableForEncoding);
+    }
+
+    private static synchronized void rememberDecodedWireSize(AggregateRecipe recipe, int wireSize) {
+        rememberCachedWireSize(recipe, null, wireSize, false);
+    }
+
+    private static synchronized void rememberCachedWireSize(
+            AggregateRecipe recipe, byte[] encoded, int wireSize, boolean reusableForEncoding) {
         expungeStaleEncodedBytes();
         CachedWireBytes previous = ENCODED_BYTES.remove(new IdentityWeakReference(recipe));
-        if (previous != null) {
+        if (previous != null && previous.bytes() != null) {
             cachedWireBytes -= previous.bytes().length;
         }
-        if (encoded.length > MAX_CACHED_WIRE_BYTES || encoded.length > MAX_CACHEABLE_RECIPE_BYTES) {
+        if (wireSize < 0
+                || (encoded != null && (encoded.length > MAX_CACHED_WIRE_BYTES
+                        || encoded.length > MAX_CACHEABLE_RECIPE_BYTES))) {
             return;
         }
         ENCODED_BYTES.put(
                 new IdentityWeakReference(recipe, ENCODED_BYTES_QUEUE),
-                new CachedWireBytes(encoded, reusableForEncoding));
-        cachedWireBytes += encoded.length;
+                new CachedWireBytes(encoded, wireSize, reusableForEncoding));
+        if (encoded != null) {
+            cachedWireBytes += encoded.length;
+        }
         Iterator<Map.Entry<IdentityWeakReference, CachedWireBytes>> iterator =
                 ENCODED_BYTES.entrySet().iterator();
         while (cachedWireBytes > MAX_CACHED_WIRE_BYTES || ENCODED_BYTES.size() > MAX_CACHED_WIRE_RECIPES) {
             Map.Entry<IdentityWeakReference, CachedWireBytes> eldest = iterator.next();
-            cachedWireBytes -= eldest.getValue().bytes().length;
+            if (eldest.getValue().bytes() != null) {
+                cachedWireBytes -= eldest.getValue().bytes().length;
+            }
             iterator.remove();
         }
     }
@@ -306,13 +326,13 @@ public record AggregateRecipe(
         IdentityWeakReference reference;
         while ((reference = (IdentityWeakReference) ENCODED_BYTES_QUEUE.poll()) != null) {
             CachedWireBytes removed = ENCODED_BYTES.remove(reference);
-            if (removed != null) {
+            if (removed != null && removed.bytes() != null) {
                 cachedWireBytes -= removed.bytes().length;
             }
         }
     }
 
-    private record CachedWireBytes(byte[] bytes, boolean reusableForEncoding) {
+    private record CachedWireBytes(byte[] bytes, int wireSize, boolean reusableForEncoding) {
     }
 
     private static final class IdentityWeakReference extends WeakReference<AggregateRecipe> {
